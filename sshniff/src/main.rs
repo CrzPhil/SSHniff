@@ -62,41 +62,14 @@ fn main() {
         log::warn!("No output directory specified.")
     }
 
-//    // Read pcap
-//    // Filter taken from Packet Strider
-//    let filter = String::from("\
-//        ssh &&\
-//        !tcp.analysis.spurious_retransmission &&\
-//        !tcp.analysis.retransmission &&\
-//        !tcp.analysis.fast_retransmission\
-//    ");
-//
-//    let streams: HashSet<u32>;
-//
-//    // Obtain Set of streams, or set only containing stream N.
-//    if args.nstream >= 0 {
-//        streams = HashSet::from([args.nstream as u32]);
-//    } else {
-//        let builder = rtshark::RTSharkBuilder::builder()
-//            .input_path(&args.file)
-//            .display_filter(&filter);
-//    
-//        let mut rtshark = match builder.spawn() {
-//            Err(err) => {
-//                log::error!("Error running tshark: {err}"); 
-//                return;
-//            }
-//            Ok(rtshark) => {
-//                log::info!("Reading {}", args.file);
-//                rtshark
-//            }
-//        };
-//     
-//        streams = analyser::utils::load_file(&args.file);
-//        rtshark.kill();
-//    }
-
     let streams = analyser::utils::load_file(args.file, args.nstream);
-    println!("{:?}", streams.keys());
+
+    let x = analyser::core::find_meta_size(3, &streams.get(&3).unwrap());
+    println!("{x:?}");
+    let y = analyser::core::find_meta_hassh(&streams.get(&3).unwrap());
+    println!("{y:?}");
+    let z = analyser::core::find_meta_protocol(&streams.get(&3).unwrap());
+    println!("{z:?}");
+
 }
 

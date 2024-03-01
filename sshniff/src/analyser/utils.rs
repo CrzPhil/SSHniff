@@ -1,6 +1,8 @@
 use rtshark::{Packet, RTShark};
 use core::panic;
-use std::collections::HashMap;
+use std::{collections::HashMap, string::FromUtf8Error};
+use md5::{Md5, Digest};
+use hex;
 
 // If nstreams is not set, we need to iterate through the file and return all the streams to
 // iterate through.
@@ -87,4 +89,12 @@ pub fn load_file(filepath: String, stream: i32) -> HashMap<u32, Vec<Packet>> {
     rtshark.kill();
 
     streams
+}
+
+pub fn get_md5_hash(string_in: String) -> String {
+    let mut hasher = Md5::new();
+    hasher.update(string_in);
+    let result = hasher.finalize();
+    
+    hex::encode(result)
 }
