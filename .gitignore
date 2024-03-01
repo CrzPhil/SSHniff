@@ -1,2 +1,5 @@
 *.pcap
 *.pcapng
+target/
+debug/
+Cargo.lock
