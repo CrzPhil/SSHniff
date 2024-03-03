@@ -7,7 +7,7 @@ use hex;
 
 #[derive(Clone, Copy, Debug)]
 pub struct PacketInfo<'a> {
-    index: usize,
+    pub index: usize,
     pub seq: i64,
     pub length: i32,    // We use i32 to allow for negative values, indicating server packets
     packet: &'a Packet,
@@ -243,6 +243,57 @@ pub fn scan_for_reverse_session_r_option(ordered_packets: &Vec<PacketInfo>, prom
     None
 }
 
+// Look for client's acceptance of server's SSH host key 
+// Happens when pubkey is in known_hosts.
+pub fn scan_for_host_key_accepts<'a>(packet_infos: &'a[PacketInfo<'a>], logged_in_at: usize) {
+    let mut result: PacketInfo;
+
+    for (index, packet_info) in packet_infos.iter().take(100).enumerate() {
+        if index == logged_in_at {
+            break;
+        }
+
+        let packet = packet_info.packet;
+        let message_code = match get_message_code(&packet) {
+            Some(code) => code,
+            None => continue,
+        };
+
+        if message_code != 21 {
+            continue;
+        }
+
+        let next_packet = packet_infos[index+1].packet;
+
+        // The New Keys (21) packet is *not* followed by message_code
+        match get_message_code(&next_packet) {
+            Some(_) => continue,
+            None => {}
+        };
+
+        // This is the packet containing the server's key fingerprint.
+        // TODO: In packet strider this is simply logged, but I think it's worth keeping track of
+        // this packet and actually outputting the fingerprint; maybe make it optional.
+        let previous_packet = packet_infos[index-1].packet;
+        let ssh_layer = previous_packet.layer_name("ssh");
+    }
+}
+
+fn get_message_code(packet: &Packet) -> Option<u32> {
+    let ssh_layer = packet.layer_name("ssh").unwrap();
+
+    let message_code = match ssh_layer.metadata("ssh.message_code") {
+        Some(message_code) => Some(message_code.value().parse::<u32>().unwrap()),
+        None => None,
+    };
+
+    message_code
+}
+
+// TODO: 
+// Note- Packet Strider defines the prompt size as prompt_size + 40 + 8, given the prompt_size
+// obtained in construct_meta; i.e NewKeys+4. I don't know why, and it doesn't seem to work. This
+// is in addition to the below TODO mentioning the +8 real prompt after the +4 fake prompt.
 pub fn scan_for_login_attempts<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
     let mut attempts: Vec<(&PacketInfo, bool)> = Vec::new();
 

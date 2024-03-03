@@ -78,6 +78,6 @@ fn main() {
     let vv = analyser::utils::order_keystrokes(&mut k, 36);
     //let vz = analyser::utils::scan_for_reverse_session_r_option(&vv, -52);
     let login = analyser::utils::scan_for_login_attempts(&vv, -52);
-    println!("{} login attempts", login.len());
+    //let asdf = analyser::utils::scan_for_host_key_accepts(&vv, login[2].0.index);
 }
 
