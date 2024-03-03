@@ -15,7 +15,6 @@ pub fn analyse(streams: &HashMap<u32, Packet>) {
 // Finds (21) New Keys packet (Client)
 // Gets lengths of next four packets
 // Performs dark magic calculation that actually determines TCP length of keystrokes.
-<<<<<<< HEAD
 // TODO: Maybe more useful to return a hashmap of: "keystroke_size": xyz, "login_size": xyz, so I
 // don't have to keep coming back to decipher what index is what item...
 // Temporarily:
@@ -25,8 +24,6 @@ pub fn analyse(streams: &HashMap<u32, Packet>) {
 // 3: New_Keys_2
 // 4: New_Keys_3
 // 5: Login Size
-=======
->>>>>>> 44fd1ba36942d88decb2ae945e38f95a3e9ce46a
 pub fn find_meta_size(stream: u32, packets: &Vec<Packet>) -> Result<[u32; 6], &'static str> {
     log::info!("Determining keystroke sizings");
     let meta_size: [u32; 6];
@@ -53,10 +50,7 @@ pub fn find_meta_size(stream: u32, packets: &Vec<Packet>) -> Result<[u32; 6], &'
         };
 
         if message_code == new_keys_code {
-<<<<<<< HEAD
             // TODO: This is neat but unreadable once I came back to it. 
-=======
->>>>>>> 44fd1ba36942d88decb2ae945e38f95a3e9ce46a
             // We look ahead to the next four packets following the New Keys (21) packet.
             // We get the packets' respective TCP lengths.
             // Packet i+1 to i+3: "new keys x"

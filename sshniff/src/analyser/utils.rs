@@ -7,11 +7,7 @@ use hex;
 
 #[derive(Clone, Copy, Debug)]
 pub struct PacketInfo<'a> {
-<<<<<<< HEAD
     pub index: usize,
-=======
-    index: usize,
->>>>>>> 44fd1ba36942d88decb2ae945e38f95a3e9ce46a
     pub seq: i64,
     pub length: i32,    // We use i32 to allow for negative values, indicating server packets
     packet: &'a Packet,
@@ -104,17 +100,6 @@ pub fn load_file(filepath: String, stream: i32) -> HashMap<u32, Vec<Packet>> {
     streams
 }
 
-<<<<<<< HEAD
-=======
-pub fn get_md5_hash(string_in: String) -> String {
-    let mut hasher = Md5::new();
-    hasher.update(string_in);
-    let result = hasher.finalize();
-    
-    hex::encode(result)
-}
-
->>>>>>> 44fd1ba36942d88decb2ae945e38f95a3e9ce46a
 pub fn create_size_matrix(packets: &Vec<Packet>) -> Vec<PacketInfo> {
     packets.iter().enumerate().map(|(index, packet)| { 
         let tcp_layer = packet.layer_name("tcp").unwrap();
@@ -156,11 +141,7 @@ pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_si
                     ordered_packets.push(packet_infos.remove(curr+itr));
                     found_match = true;
                 } else if packet_infos[curr+itr].length == -(keystroke_size as i32 + 8) {
-<<<<<<< HEAD
                     // TODO - investigate/improve
-=======
-                    // TODO
->>>>>>> 44fd1ba36942d88decb2ae945e38f95a3e9ce46a
                     // Why the +8? When is a keystroke response 8 bytes larger?
                     // Maybe with RET or TAB completion, i've definitely seen this happen.
                     ordered_packets.push(packet_infos.remove(curr+itr));
@@ -180,7 +161,6 @@ pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_si
     ordered_packets
 }
 
-<<<<<<< HEAD
 // Returns timestamp of -R initiation (or None)
 pub fn scan_for_reverse_session_r_option(ordered_packets: &Vec<PacketInfo>, prompt_size: i32) -> Option<i64> {
     let size = ordered_packets.len();
@@ -358,8 +338,6 @@ fn is_successful_login(packet_triplet: &[&PacketInfo; 3], prompt_size: i32) -> b
     false
 }
 
-=======
->>>>>>> 44fd1ba36942d88decb2ae945e38f95a3e9ce46a
 fn is_keystroke(packet: &Packet, keystroke_size: u32) -> bool {
     let tcp_layer = packet.layer_name("tcp").expect("TCP layer not found");
     tcp_layer.metadata("tcp.len").unwrap().value().parse::<u32>().unwrap() == keystroke_size
@@ -369,7 +347,6 @@ fn pinfo_is_keystroke(packet: &PacketInfo, keystroke_size: i32) -> bool {
     packet.length == keystroke_size
 }
 
-<<<<<<< HEAD
 pub fn get_md5_hash(string_in: String) -> String {
     let mut hasher = Md5::new();
     hasher.update(string_in);
@@ -377,7 +354,4 @@ pub fn get_md5_hash(string_in: String) -> String {
     
     hex::encode(result)
 }
-=======
->>>>>>> 44fd1ba36942d88decb2ae945e38f95a3e9ce46a
-
 
