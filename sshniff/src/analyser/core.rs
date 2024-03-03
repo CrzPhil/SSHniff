@@ -16,6 +16,7 @@ pub fn analyse(streams: &HashMap<u32, Packet>) {
 // Gets lengths of next four packets
 // Performs dark magic calculation that actually determines TCP length of keystrokes.
 pub fn find_meta_size(stream: u32, packets: &Vec<Packet>) -> Result<[u32; 6], &'static str> {
+    log::info!("Determining keystroke sizings");
     let meta_size: [u32; 6];
     let new_keys_code: u8 = 21;
 //    let size_newkeys_next: u32;
@@ -130,8 +131,7 @@ pub fn find_meta_size(stream: u32, packets: &Vec<Packet>) -> Result<[u32; 6], &'
 }
 
 pub fn find_meta_hassh(packets: &Vec<Packet>) -> Result<[String; 2], &'static str> {
-    let hassh: String;
-    let hassh_server: String;
+    log::info!("Calculating hassh");
 
     let mut hassh_client_found: bool = false;
     let mut hassh_server_found: bool = false;
@@ -149,7 +149,7 @@ pub fn find_meta_hassh(packets: &Vec<Packet>) -> Result<[String; 2], &'static st
     let mut client_mac_algs_cts: &str;
     let mut client_cmp_algs_cts: &str;
     let mut hassh_algorithms: String;
-    let mut hassh: String = String::new();
+    let mut hassh = None;
 
     // Server to Client (stc) -> hassh_server
     let mut server_kex: &str;
@@ -157,7 +157,7 @@ pub fn find_meta_hassh(packets: &Vec<Packet>) -> Result<[String; 2], &'static st
     let mut server_mac_algs_stc: &str;
     let mut server_cmp_algs_stc: &str;
     let mut hassh_server_algorithms: String;
-    let mut hassh_server: String = String::new();
+    let mut hassh_server = None;
 
     for packet in packets.iter().take(50) {
         if hassh_client_found && hassh_server_found {
@@ -194,7 +194,7 @@ pub fn find_meta_hassh(packets: &Vec<Packet>) -> Result<[String; 2], &'static st
                 .ok_or("ssh.compression_algorithms_client_to_server not found")?.value();
 
             hassh_algorithms = [client_kex, client_enc_algs_cts, client_mac_algs_cts, client_cmp_algs_cts].join(";");
-            hassh = utils::get_md5_hash(hassh_algorithms);
+            hassh = Some(utils::get_md5_hash(hassh_algorithms));
             hassh_client_found = true;
         } else if (dport > sport) && !hassh_server_found {
             server_kex = ssh_layer.metadata("ssh.kex_algorithms")
@@ -207,7 +207,7 @@ pub fn find_meta_hassh(packets: &Vec<Packet>) -> Result<[String; 2], &'static st
                 .ok_or("ssh.compression_algorithms_server_to_client not found")?.value();
 
             hassh_server_algorithms = [server_kex, server_enc_algs_stc, server_mac_algs_stc, server_cmp_algs_stc].join(";");
-            hassh_server = utils::get_md5_hash(hassh_server_algorithms);
+            hassh_server = Some(utils::get_md5_hash(hassh_server_algorithms));
             hassh_server_found = true;
         }
     }
@@ -216,7 +216,7 @@ pub fn find_meta_hassh(packets: &Vec<Packet>) -> Result<[String; 2], &'static st
     // sip, dip, sport, dport are switched. Not sure how this can happen or affect our
     // implementation, but something to watch out for during testing.
     
-    Ok([hassh, hassh_server])
+    Ok([hassh.ok_or("Failed to get hassh")?, hassh_server.ok_or("Failed to get hassh_server")?])
 }
 
 pub fn find_meta_protocol(packets: &Vec<Packet>) -> Result<[String; 6], &'static str> {
@@ -264,7 +264,14 @@ pub fn find_meta_protocol(packets: &Vec<Packet>) -> Result<[String; 6], &'static
         }
     }
 
-    Ok([protocol_client.ok_or("Failed to get client protocol")?, protocol_server.ok_or("Failed to get server protocol")?, sip.to_string(), sport.to_string(), dip.to_string(), dport.to_string()])
+    Ok([
+        protocol_client.ok_or("Failed to get client protocol")?,
+        protocol_server.ok_or("Failed to get server protocol")?,
+        sip.to_string(),
+        sport.to_string(),
+        dip.to_string(),
+        dport.to_string()
+    ])
 }
 
 //pub fn extract_core_info(stream:u32, packets: &Vec<Packet>) -> Result<[u32; 12], &'static str> {
