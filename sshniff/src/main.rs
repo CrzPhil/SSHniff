@@ -5,6 +5,8 @@ use simple_logger::SimpleLogger;
 use std::{collections::HashMap, fs};
 use rtshark::RTSharkBuilder;
 
+use crate::analyser::core::analyse;
+
 /// SSHniff is a packet forensics tool for SSH
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -64,12 +66,14 @@ fn main() {
 
     let streams = analyser::utils::load_file(args.file, args.nstream);
 
-    let x = analyser::core::find_meta_size(3, &streams.get(&3).unwrap());
-    println!("{x:?}");
+    let x = analyser::core::find_meta_size(3, &streams.get(&3).unwrap()).unwrap();
+ //   println!("{x:?}");
     let y = analyser::core::find_meta_hassh(&streams.get(&3).unwrap());
-    println!("{y:?}");
+//    println!("{y:?}");
     let z = analyser::core::find_meta_protocol(&streams.get(&3).unwrap());
-    println!("{z:?}");
-
+//    println!("{z:?}");
+    let mut k = analyser::utils::create_size_matrix(&streams.get(&3).unwrap());
+//    println!("{k:?}");
+    let vv = analyser::utils::order_keystrokes(&mut k, 36);
 }
 
