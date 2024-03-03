@@ -65,6 +65,7 @@ fn main() {
     }
 
     let streams = analyser::utils::load_file(args.file, args.nstream);
+<<<<<<< HEAD
     let key = streams.keys().into_iter().next().unwrap();
 
     let x = analyser::core::find_meta_size(3, &streams.get(key).unwrap()).unwrap();
@@ -79,5 +80,17 @@ fn main() {
     //let vz = analyser::utils::scan_for_reverse_session_r_option(&vv, -52);
     let login = analyser::utils::scan_for_login_attempts(&vv, -52);
     //let asdf = analyser::utils::scan_for_host_key_accepts(&vv, login[2].0.index);
+=======
+
+    let x = analyser::core::find_meta_size(3, &streams.get(&3).unwrap()).unwrap();
+ //   println!("{x:?}");
+    let y = analyser::core::find_meta_hassh(&streams.get(&3).unwrap());
+//    println!("{y:?}");
+    let z = analyser::core::find_meta_protocol(&streams.get(&3).unwrap());
+//    println!("{z:?}");
+    let mut k = analyser::utils::create_size_matrix(&streams.get(&3).unwrap());
+//    println!("{k:?}");
+    let vv = analyser::utils::order_keystrokes(&mut k, 36);
+>>>>>>> 44fd1ba36942d88decb2ae945e38f95a3e9ce46a
 }
 
