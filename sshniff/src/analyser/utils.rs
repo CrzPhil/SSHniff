@@ -100,14 +100,6 @@ pub fn load_file(filepath: String, stream: i32) -> HashMap<u32, Vec<Packet>> {
     streams
 }
 
-pub fn get_md5_hash(string_in: String) -> String {
-    let mut hasher = Md5::new();
-    hasher.update(string_in);
-    let result = hasher.finalize();
-    
-    hex::encode(result)
-}
-
 pub fn create_size_matrix(packets: &Vec<Packet>) -> Vec<PacketInfo> {
     packets.iter().enumerate().map(|(index, packet)| { 
         let tcp_layer = packet.layer_name("tcp").unwrap();
@@ -149,7 +141,7 @@ pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_si
                     ordered_packets.push(packet_infos.remove(curr+itr));
                     found_match = true;
                 } else if packet_infos[curr+itr].length == -(keystroke_size as i32 + 8) {
-                    // TODO
+                    // TODO - investigate/improve
                     // Why the +8? When is a keystroke response 8 bytes larger?
                     // Maybe with RET or TAB completion, i've definitely seen this happen.
                     ordered_packets.push(packet_infos.remove(curr+itr));
@@ -169,6 +161,132 @@ pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_si
     ordered_packets
 }
 
+// Returns timestamp of -R initiation (or None)
+pub fn scan_for_reverse_session_r_option(ordered_packets: &Vec<PacketInfo>, prompt_size: i32) -> Option<i64> {
+    let size = ordered_packets.len();
+    let first_timestamp = ordered_packets[0].packet.timestamp_micros().unwrap();
+
+    for (index, packet_info) in ordered_packets.iter().take(40).enumerate() {
+        let packet = packet_info.packet;
+        let ssh_layer = packet.layer_name("ssh").unwrap();
+        // TODO: What if we store message codes in PacketInfo as Options?
+        let message_code = match ssh_layer.metadata("ssh.message_code") {
+            Some(message_code) => message_code.value().parse::<u32>().unwrap(),
+            None => continue,
+        };
+        // TODO: Even better, what if we keep track of index of essential New Keys and other such
+        // packets?
+        if message_code != 21 {
+            continue;
+        }
+
+        // Look ahead for -R signature (7 packets)
+        // Initial offset at 4, because NewKeys+4 = login prompt size
+        let mut offset = 4;
+
+        while (index + offset + 7) < size && offset < 20 {
+            // We're looking for a successful login sequence.
+            if ordered_packets[index+offset].length != prompt_size {
+                //log::debug!("Expected login prompt size at New Keys + 4 but found length: {}", ordered_packets[index+offset].length);
+                offset += 1;
+                continue;
+            }
+            // If the second-to-next packet is a login prompt, too, it means login failed and we can skip
+            // to the next login
+            if ordered_packets[index+offset+2].length == prompt_size {
+                offset += 2;
+                continue;
+            }
+            
+            // If we reach this point, index + offset is pointing to the login prompt of a
+            // successful login sequence. We now analyse the next 7 packets for the -R signature.
+            
+            // TODO: fact-check/improve this. It's not always accurate. Also we need to find out
+            // why these signatures exist.
+
+            // This signature is "often but not always exhibited by mac clients when -R is used".
+            if ordered_packets[index + offset + 3].length > 0 &&
+            ordered_packets[index + offset + 4].length < 0 && 
+            ordered_packets[index + offset + 4].length != prompt_size && 
+            ordered_packets[index + offset + 5].length > 0 && 
+            ordered_packets[index + offset + 6].length < 0 && 
+            ordered_packets[index + offset + 6].length != prompt_size &&
+            (ordered_packets[index + offset + 6].length.abs() < ordered_packets[index + offset + 5].length.abs())
+            {
+                // TODO: Why +10?
+                let relative_timestamp = ordered_packets[index + 10].packet.timestamp_micros().unwrap() - first_timestamp;
+                return Some(relative_timestamp);
+            }
+
+            // This signature is "often exhibited by ubuntu clients when -R is used".
+            // Core differences:
+            // 4 -> CTS
+            // 5 -> STC
+            // 5 != prompt_size
+            // 7 -> CTS
+            if ordered_packets[index + offset + 3].length > 0 &&
+            ordered_packets[index + offset + 4].length > 0 && 
+            ordered_packets[index + offset + 5].length != prompt_size && 
+            ordered_packets[index + offset + 5].length < 0 && 
+            ordered_packets[index + offset + 6].length < 0 && 
+            ordered_packets[index + offset + 6].length != prompt_size &&
+            (ordered_packets[index + offset + 6].length.abs() < ordered_packets[index + offset + 5].length.abs()) &&
+            ordered_packets[index + offset + 7].length > 0
+            {
+                let relative_timestamp = ordered_packets[index + 10].packet.timestamp_micros().unwrap() - first_timestamp;
+                return Some(relative_timestamp);
+            }
+
+            offset += 1;
+        }
+    }
+    None
+}
+
+pub fn scan_for_login_attempts<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
+    let mut attempts: Vec<(&PacketInfo, bool)> = Vec::new();
+
+    let mut tmp = 0;
+    // Skip first seven Kex negotiation packets
+    let offset = 7;
+    for (index, packet_info) in packet_infos.iter().skip(offset).take(300).enumerate() {
+        if packet_info.length == prompt_size {
+            // TODO: Packet Strider fails here; I observed that the first real login prompt comes
+            // at New Keys +8, at least for curve25519-sha256 and sntrup761x25519-sha512@... 
+            // Prompt size is still at New Keys +4, but the actual prompt comes at +8, so we skip
+            // the first one (temporarily for testing)
+            if tmp == 0 {
+                tmp += 1;
+                continue;
+            }
+            if is_successful_login(&[packet_info, &packet_infos[index+offset+1], &packet_infos[index+offset+2]], prompt_size) {
+                log::debug!("Sucessful login at {}", packet_info.seq);
+                attempts.push((packet_info, true));
+                break;
+            }
+            log::debug!("Failed login at {}", packet_info.seq);
+            attempts.push((packet_info, false));
+        }
+    }
+
+    attempts
+}
+
+fn is_successful_login(packet_triplet: &[&PacketInfo; 3], prompt_size: i32) -> bool {
+    assert_eq!(packet_triplet[0].length, prompt_size);
+
+    if packet_triplet[1].length > 0 && packet_triplet[2].length != prompt_size {
+        return true;
+    } 
+
+    // TODO: this is in Packet Strider but I assume it's superfluous.
+//    if packet_triplet[1].length > 0 && packet_triplet[2].length < 0 && packet_triplet[2].length != prompt_size {
+//        return false;
+//    } 
+
+    false
+}
+
 fn is_keystroke(packet: &Packet, keystroke_size: u32) -> bool {
     let tcp_layer = packet.layer_name("tcp").expect("TCP layer not found");
     tcp_layer.metadata("tcp.len").unwrap().value().parse::<u32>().unwrap() == keystroke_size
@@ -178,5 +296,12 @@ fn pinfo_is_keystroke(packet: &PacketInfo, keystroke_size: i32) -> bool {
     packet.length == keystroke_size
 }
 
+pub fn get_md5_hash(string_in: String) -> String {
+    let mut hasher = Md5::new();
+    hasher.update(string_in);
+    let result = hasher.finalize();
+    
+    hex::encode(result)
+}
 
 
