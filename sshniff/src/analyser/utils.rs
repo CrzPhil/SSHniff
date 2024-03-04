@@ -1,9 +1,16 @@
 use rtshark::{Packet, RTShark};
 use core::panic;
-use std::{collections::HashMap, string::FromUtf8Error};
-use md5::{Md5, Digest};
+use std::{collections::HashMap, u128};
+use md5::{Digest, Md5};
 use hex;
 
+#[derive(Clone, Debug)]
+pub enum KeystrokeType {
+    keystroke,
+    delete,
+    tab,
+    enter,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct PacketInfo<'a> {
@@ -11,6 +18,13 @@ pub struct PacketInfo<'a> {
     pub seq: i64,
     pub length: i32,    // We use i32 to allow for negative values, indicating server packets
     packet: &'a Packet,
+}
+
+#[derive(Clone, Debug)]
+pub struct Keystroke {
+    pub k_type: KeystrokeType,
+    pub timestamp: i64,
+    pub response_size: Option<u128>,
 }
 
 // If nstreams is not set, we need to iterate through the file and return all the streams to
@@ -243,6 +257,103 @@ pub fn scan_for_reverse_session_r_option(ordered_packets: &Vec<PacketInfo>, prom
     None
 }
 
+pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size: i32, logged_in_at: usize) -> Vec<Keystroke> {
+    let mut index = logged_in_at;
+    let mut keystrokes: Vec<Keystroke> = Vec::new();
+
+    while index < packet_infos.len() - 2 {
+        if packet_infos[index].length != keystroke_size {
+            index += 2;
+            continue;
+        }
+
+        let next_packet = packet_infos[index+1];
+        let next_next_packet = packet_infos[index+2];
+
+        // Check for keystroke -> response (echo) -> keystroke
+        if next_packet.length == -keystroke_size && next_next_packet.length == keystroke_size {
+            keystrokes.push(Keystroke {
+                k_type: KeystrokeType::keystroke,
+                timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
+                response_size: None,
+            });
+        } else if next_packet.length == -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
+            keystrokes.push(Keystroke {
+                k_type: KeystrokeType::delete,
+                timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
+                response_size: None,
+            });
+        } else if next_packet.length < -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
+            // TODO: refer to observation in notes -> I suspect this is far from fine-tuned.
+            keystrokes.push(Keystroke {
+                k_type: KeystrokeType::tab,
+                timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
+                response_size: None,
+            });
+        } else if next_packet.length <= -keystroke_size && next_next_packet.length <= -keystroke_size && !keystrokes.is_empty() {
+            // After running a command (by sending enter/return), the return is echoed (but not -keystroke_size length, interestingly)
+            // We then iterate through the next packets until a Client packet, which indicates the end of the response (at least for typical commands).
+            let mut end: usize = index + 2;
+            let mut response_size: u128 = 0;
+
+            while end < packet_infos.len() {
+                // Client packet indicates end of server block
+                if packet_infos[end].length > 0 {
+                    index = end;
+                    break;
+                }
+                
+                // TODO: In ciphers with known payload length, this can be optimised.
+                // Currently this is just the length of the padded TCP packet(s)
+                response_size += packet_infos[end].length.abs() as u128;
+                end += 1;
+            }
+            
+            keystrokes.push(Keystroke {
+                k_type: KeystrokeType::enter,
+                timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
+                response_size: Some(response_size),
+            });
+        }
+
+        index += 2;
+    }
+
+    keystrokes
+}
+
+// Scan for packet signature of Agent forwarding
+// TODO: Testing has shown this as inconclusive. 
+// I cannot verify the described behaviour; the Server-Client sandwich is found, but also in non-agent-forwarding connections.
+// Further, the sizings are off and inconsistent. As this is low-priority, I will postpone implementation and research. 
+pub fn scan_for_agent_forwarding(packet_infos: &[PacketInfo]) {
+    let mut ctr = 0;
+
+    // According to Packet Strider, tell-tale client packet occurs between packets 18-22
+    // TODO: verify/investigate this claim; fine-tune accordingly.
+    for (index, packet_info) in packet_infos.iter().take(40).enumerate() {
+        // Once again, only look after New Keys. Further argument to keep track of New Keys index.
+        // TODO ^ 
+        match get_message_code(&packet_info.packet) {
+            Some(code) => {
+                if code != 21 {
+                    continue;
+                }
+            },
+            None => continue,
+        };
+        // The New Keys (21) packet is *not* followed by message_code
+        let next_packet = packet_infos[index+1].packet;
+        match get_message_code(&next_packet) {
+            Some(_) => continue,
+            None => {}
+        };
+
+        // Tell-tale packet "is always surrounded by 2 Server packets before and 2 Server packets after"
+        todo!("See comment above function definition.")        
+    }
+}
+
 // Look for client's acceptance of server's SSH host key 
 // Happens when pubkey is in known_hosts.
 pub fn scan_for_host_key_accepts<'a>(packet_infos: &'a[PacketInfo<'a>], logged_in_at: usize) {
@@ -288,6 +399,43 @@ fn get_message_code(packet: &Packet) -> Option<u32> {
     };
 
     message_code
+}
+
+pub fn scan_for_key_login<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> bool {
+    for (index, packet_info) in packet_infos.iter().take(40).enumerate() {
+        // New Keys (21)
+        match get_message_code(packet_info.packet) {
+            Some(code) => {
+                if code != 21 {
+                    continue;
+                }
+            },
+            None => continue,
+        };
+
+        // The New Keys (21) packet is *not* followed by message_code
+        let next_packet = packet_infos[index+1].packet;
+        match get_message_code(&next_packet) {
+            Some(_) => continue,
+            None => {}
+        };
+
+        assert!(index+8 <= packet_infos.len());
+
+        // Check New Keys +4 == prompt_size, for redundancy (TODO?)
+        if packet_infos[index + 4].length != prompt_size {
+            // _Should_ never happen
+            log::error!("Inconsistent login prompt detected.");
+            return false;
+        }
+
+        // If a password prompt appears, it does so at NewKeys +8. 
+        // If not, we only see prompt_size at +4, and +8 is differently sized. 
+        return packet_infos[index + 8].length != prompt_size;
+    }
+
+    log::error!("Escaped the loop while looking for key-based login. _Should_ not happen.");
+    false
 }
 
 // TODO: 

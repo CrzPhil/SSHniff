@@ -79,5 +79,10 @@ fn main() {
     //let vz = analyser::utils::scan_for_reverse_session_r_option(&vv, -52);
     let login = analyser::utils::scan_for_login_attempts(&vv, -52);
     //let asdf = analyser::utils::scan_for_host_key_accepts(&vv, login[2].0.index);
+//    let logged_in_at = login[0].0.index;
+//    let tt = analyser::utils::scan_for_keystrokes(&vv, 36, logged_in_at);
+//    println!("{tt:?}");
+    let key_log = analyser::utils::scan_for_key_login(&vv, -52);
+    println!("Logged in via key? {key_log}");
 }
 
