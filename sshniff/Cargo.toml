@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.1", features = ["derive"] }
 hex = "0.4.3"
+lazy_static = "1.4.0"
 log = "0.4.20"
 md-5 = "0.10.6"
 rtshark = "2.7.1"

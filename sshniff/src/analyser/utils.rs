@@ -236,7 +236,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
 
     while index < packet_infos.len() - 2 {
         if packet_infos[index].length != keystroke_size {
-            index += 2;
+            index += 1;
             continue;
         }
 
@@ -245,18 +245,22 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
 
         // Check for keystroke -> response (echo) -> keystroke
         if next_packet.length == -keystroke_size && next_next_packet.length == keystroke_size {
+            log::debug!("Keystroke: {}", packet_infos[index].seq);
             keystrokes.push(Keystroke {
                 k_type: KeystrokeType::keystroke,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
             });
         } else if next_packet.length == -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
+            log::debug!("Delete: {}", packet_infos[index].seq);
             keystrokes.push(Keystroke {
                 k_type: KeystrokeType::delete,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
             });
         } else if next_packet.length < -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
+            log::debug!("Tab: {}", packet_infos[index].seq);
+
             // TODO: refer to observation in notes -> I suspect this is far from fine-tuned.
             keystrokes.push(Keystroke {
                 k_type: KeystrokeType::tab,
@@ -264,6 +268,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                 response_size: None,
             });
         } else if next_packet.length <= -keystroke_size && next_next_packet.length <= -keystroke_size && !keystrokes.is_empty() {
+            log::debug!("Return: {}", packet_infos[index].seq);
             // After running a command (by sending enter/return), the return is echoed (but not -keystroke_size length, interestingly)
             // We then iterate through the next packets until a Client packet, which indicates the end of the response (at least for typical commands).
             let mut end: usize = index + 2;
@@ -287,6 +292,9 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: Some(response_size),
             });
+
+            // We already set index = end in the loop, so no increment needed.
+            continue;
         }
 
         index += 2;
@@ -418,17 +426,17 @@ pub fn scan_for_key_login<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i3
 pub fn scan_for_login_attempts<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
     let mut attempts: Vec<(&PacketInfo, bool)> = Vec::new();
 
-    let mut tmp = 0;
-    // Skip first seven Kex negotiation packets
-    let offset = 7;
+    let mut seen_first_prompt = false;
+    // Skip Kex negotiation packets
+    let offset = 8;
     for (index, packet_info) in packet_infos.iter().skip(offset).take(300).enumerate() {
         if packet_info.length == prompt_size {
             // TODO: Packet Strider fails here; I observed that the first real login prompt comes
-            // at New Keys +8, at least for curve25519-sha256 and sntrup761x25519-sha512@... 
+            // at New Keys (+6, from windows host, or) +8, at least for curve25519-sha256 and sntrup761x25519-sha512@... 
             // Prompt size is still at New Keys +4, but the actual prompt comes at +8, so we skip
             // the first one (temporarily for testing)
-            if tmp == 0 {
-                tmp += 1;
+            if !seen_first_prompt {
+                seen_first_prompt = true;
                 continue;
             }
             if is_successful_login(&[packet_info, &packet_infos[index+offset+1], &packet_infos[index+offset+2]], prompt_size) {

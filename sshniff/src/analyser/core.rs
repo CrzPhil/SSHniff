@@ -19,7 +19,7 @@ pub fn analyse(streams: &HashMap<u32, Packet>) {
 // don't have to keep coming back to decipher what index is what item...
 // Temporarily:
 // 0: Stream
-// 1: Keystroke Size
+// 1: Reverse Keystroke Size
 // 2: New_Keys_1
 // 3: New_Keys_2
 // 4: New_Keys_3
@@ -253,6 +253,7 @@ pub fn find_meta_protocol(packets: &Vec<Packet>) -> Result<[String; 6], &'static
 
         let ssh_layer = packet.layer_name("ssh").ok_or("SSH layer not found")?;
         
+        // Looking for ssh.protocol packet
         let protocol = match ssh_layer.metadata("ssh.protocol") {
             Some(protocol) => protocol.value(),
             None => continue,
@@ -275,6 +276,17 @@ pub fn find_meta_protocol(packets: &Vec<Packet>) -> Result<[String; 6], &'static
             protocol_server = Some(protocol.to_string());
         }
     }
+
+    // Under the assumption that the Client Protocol packet always comes before the Server Protocol
+    // packet, the final sip/dip sport/dport will be swapped, since they will be assigned from the
+    // Server packet. Hence, we swap the values.
+
+    let tmp_ip = sip;
+    let tmp_port = sport;
+    sip = dip;
+    sport = dport;
+    dip = tmp_ip;
+    dport = tmp_port;
 
     Ok([
         protocol_client.ok_or("Failed to get client protocol")?,
@@ -403,4 +415,173 @@ pub fn find_meta_protocol(packets: &Vec<Packet>) -> Result<[String; 6], &'static
 //    Err("Not enough packets following the New Keys packet")
 //}
 
+// TODO: 
+// Populate with more pcaps, for each scenario.
+// Kept the monolith, but maybe do away with file-loading (except for a single test) and then just
+// use serialised vector objects with the state? 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lazy_static::lazy_static;
 
+    lazy_static!(
+        static ref STREAMS: HashMap<u32, Vec<Packet>> = {
+            utils::load_file("/home/outlaw/Desktop/Code/Rust/SSHniff/sshniff/test_captures/known_pass_lsal_id_exit.pcapng".to_string(), -1)
+        };
+    );
+
+    #[test]
+    fn test_meta_sizes() {
+        let meta_size = find_meta_size(0, &STREAMS.get(&0).unwrap()).unwrap();
+        // Reverse Keystroke Size
+        assert_eq!(76, meta_size[1]);
+        // Actual keystroke size 
+        assert_eq!(36, meta_size[2]-8);
+        // Prompt size
+        assert_eq!(52, meta_size[5]);
+    }
+
+    #[test]
+    fn test_hassh() {
+        // hassh and hassh_server
+        let meta_hassh = find_meta_hassh(&STREAMS.get(&0).unwrap()).unwrap();
+        let hassh = meta_hassh[0].clone();
+        let hassh_server = meta_hassh[1].clone();
+        assert_eq!("aae6b9604f6f3356543709a376d7f657", hassh);
+        assert_eq!("779664e66160bf75999f091fce5edb5a", hassh_server);
+    }
+
+    #[test]
+    fn test_protocol() {
+        // Protocols and source/destination
+        let meta_protocol = find_meta_protocol(&STREAMS.get(&0).unwrap()).unwrap();
+        let c_proto = meta_protocol[0].clone();
+        let s_proto = meta_protocol[1].clone();
+        let src = format!("{}:{}", meta_protocol[2], meta_protocol[3]);
+        let dst = format!("{}:{}", meta_protocol[4], meta_protocol[5]);
+        assert_eq!("SSH-2.0-OpenSSH_9.6", c_proto);
+        assert_eq!("SSH-2.0-OpenSSH_8.4p1 Raspbian-5+deb11u3", s_proto);
+        assert_eq!("192.168.0.212:50502", src);
+        assert_eq!("192.168.0.45:22", dst);
+    }
+
+    #[test]
+    fn test_ordering() {
+        // Ordered packets are as many as before sorting
+        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let original_size = size_matrix.len();
+        let ordered = utils::order_keystrokes(&mut size_matrix, 36);
+        assert_eq!(original_size, ordered.len());
+    }
+
+    #[test]
+    fn test_reverse_r() {
+        // Needs ordered packets
+        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let ordered = utils::order_keystrokes(&mut size_matrix, 36);
+
+        // No -R was used
+        let reverse_r = utils::scan_for_reverse_session_r_option(&ordered, -52);
+        assert!(reverse_r.is_none());
+    }
+
+    #[test]
+    fn test_login() {
+        // Needs ordered packets
+        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let ordered = utils::order_keystrokes(&mut size_matrix, 36);
+
+        // One login attempt- login successful
+        let login = utils::scan_for_login_attempts(&ordered, -52);
+
+        // Server login prompt preceding successful login
+        let logged_in_at = login[0].0;
+        assert_eq!(2163, logged_in_at.seq);
+    }
+
+    #[test]
+    fn test_keystrokes() {
+        // Needs ordered packets
+        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let ordered = utils::order_keystrokes(&mut size_matrix, 36);
+
+        // TODO: better keystroke checking (check for type?)
+        let keystrokes = utils::scan_for_keystrokes(&ordered, 36, 20);
+        assert_eq!(15, keystrokes.len());
+    }
+
+    #[test]
+    fn test_key_login() {
+        // Needs ordered packets
+        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let ordered = utils::order_keystrokes(&mut size_matrix, 36);
+
+        // No key was used
+        let key_log = utils::scan_for_key_login(&ordered, -52);
+        assert!(!key_log);
+    }
+
+    #[test]
+    fn test_monolith() {
+        let streams = utils::load_file("/home/outlaw/Desktop/Code/Rust/SSHniff/sshniff/test_captures/known_pass_lsal_id_exit.pcapng".to_string(), -1);
+        let stream_id = streams.keys().into_iter().next().unwrap();
+
+        assert_eq!(0, *stream_id);
+        assert_eq!(1, streams.len());
+
+        let meta_size = find_meta_size(*stream_id, &streams.get(stream_id).unwrap()).unwrap();
+        // Reverse Keystroke Size
+        assert_eq!(76, meta_size[1]);
+        // Actual keystroke size 
+        assert_eq!(36, meta_size[2]-8);
+        // Prompt size
+        assert_eq!(52, meta_size[5]);
+
+        // hassh and hassh_server
+        let meta_hassh = find_meta_hassh(&streams.get(stream_id).unwrap()).unwrap();
+        let hassh = meta_hassh[0].clone();
+        let hassh_server = meta_hassh[1].clone();
+        assert_eq!("aae6b9604f6f3356543709a376d7f657", hassh);
+        assert_eq!("779664e66160bf75999f091fce5edb5a", hassh_server);
+
+        // Protocols and source/destination
+        let meta_protocol = find_meta_protocol(&streams.get(stream_id).unwrap()).unwrap();
+        let c_proto = meta_protocol[0].clone();
+        let s_proto = meta_protocol[1].clone();
+        let src = format!("{}:{}", meta_protocol[2], meta_protocol[3]);
+        let dst = format!("{}:{}", meta_protocol[4], meta_protocol[5]);
+        assert_eq!("SSH-2.0-OpenSSH_9.6", c_proto);
+        assert_eq!("SSH-2.0-OpenSSH_8.4p1 Raspbian-5+deb11u3", s_proto);
+        assert_eq!("192.168.0.212:50502", src);
+        assert_eq!("192.168.0.45:22", dst);
+
+        // Ordered packets are as many as before sorting
+        let mut size_matrix = utils::create_size_matrix(&streams.get(stream_id).unwrap());
+        let original_size = size_matrix.len();
+        let ordered = utils::order_keystrokes(&mut size_matrix, 36);
+        assert_eq!(original_size, ordered.len());
+
+        // No -R was used
+        let reverse_r = utils::scan_for_reverse_session_r_option(&ordered, -52);
+        assert!(reverse_r.is_none());
+
+        // One login attempt- login successful
+        let login = utils::scan_for_login_attempts(&ordered, -52);
+        assert_eq!(1, login.len());
+        assert!(login[0].1);
+
+        // let hostkey_acc = utils::scan_for_host_key_accepts(&vv, login[2].0.index);
+        
+        // Server login prompt preceding successful login
+        let logged_in_at = login[0].0;
+        assert_eq!(2163, logged_in_at.seq);
+
+        // TODO: better keystroke checking (check for type?)
+        let keystrokes = utils::scan_for_keystrokes(&ordered, 36, logged_in_at.index);
+        assert_eq!(15, keystrokes.len());
+
+        // No key was used
+        let key_log = utils::scan_for_key_login(&ordered, -52);
+        assert!(!key_log);
+    }
+}
