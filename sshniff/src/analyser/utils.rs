@@ -382,6 +382,10 @@ fn get_message_code(packet: &Packet) -> Option<u32> {
     message_code
 }
 
+// TODO (feature)
+// We can add a check for when a stream's last packet is prompt_size, pretty sure this indicates a
+// rejected login and connection termination.
+
 pub fn scan_for_key_login<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> bool {
     for (index, packet_info) in packet_infos.iter().take(40).enumerate() {
         // New Keys (21)
@@ -420,11 +424,23 @@ pub fn scan_for_key_login<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i3
 }
 
 // TODO: (verify) Looks like key offer sizes are static for each key:
-// RSA: 492 (560 in wireshark view)
-// ED25519: 140 (208 in wireshark view)
-// ECDSA: 196 (264 in wireshark view)
+// checked -> similar- yes, static- no. Testing with other server showed a disparity by 8 bytes. So
+// padding/algorithm-dependent? The former maybe, the latter definitely. Guess we'll have to go
+// through all algorithms, on different servers, and see if we can create a spectrum to classify
+// these properly. In the test the encryption was the same, but Kex algs were different;
+// curve25519-sha256 for the "smaller" packets, sntrup761x25519-sha512@openssh.com with +8 bytes.
+// Set same KexAlgorithm where sntrup was used; same byte disparity, so likely unrelated.
+// Note that server response sizes seem to stay constant for the respective keys, even where the
+// client-side packet sizing varies. 
+
+// 
+// RSA: 492-500 (560-568 in wireshark view)
+// ED25519: 140-148 (208-216 in wireshark view)
+// ECDSA: 188-196-204-212 (256-264-272-280 (280 seen with aes256-gcm@openssh.com cipher) in wireshark view)
 // DSA: TBD
 //
+// TODO: With ETM ciphers with known length, we can have a separate classification, perhaps even
+// more precise.
 pub fn scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
     log::info!("Looking for key offers.");
     // TODO: (decide on standard)
