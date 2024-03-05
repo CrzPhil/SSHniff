@@ -33,49 +33,22 @@ pub fn get_streams(rtshark: &mut RTShark, stream: i32) -> HashMap<u32, Vec<Packe
     log::info!("Collecting streams.");
     let mut stream_map: HashMap<u32, Vec<Packet>> = HashMap::new();
 
-
     while let Some(packet) = rtshark.read().unwrap_or_else(|e| {
-    log::error!("Error parsing TShark output when collecting streams: {e}");
-    None 
-    }) 
-    {
-        // TODO: Is this really the cleanest/fastest way to discern between all streams and N
-        // stream?
-        match stream {
-            -1 => {
-                if let Some(tcp) = packet.layer_name("tcp") {
-                    let meta = tcp.metadata("tcp.stream").unwrap();
-                    let stream_id: u32 = meta.value().parse().expect("Metadata stream value assumed to be parseable digit.");
-        
-                    if !stream_map.contains_key(&stream_id) {
-                        stream_map.insert(stream_id, vec![packet]);
-                    } else {
-                        match stream_map.get_mut(&stream_id) {
-                            Some(packets) => packets.push(packet),
-                            None => continue,
-                        };
-                    }
-                }
-            },
-            _ => {
-                if let Some(tcp) = packet.layer_name("tcp") {
-                    let meta = tcp.metadata("tcp.stream").unwrap();
-                    let stream_id: u32 = meta.value().parse().expect("Metadata stream value assumed to be parseable digit.");
-        
-                    // Only add N stream to map
-                    if stream_id != stream.try_into().unwrap() {
+        log::error!("Error parsing TShark output when collecting streams: {e}");
+        None 
+    }) {
+        if let Some(tcp) = packet.layer_name("tcp") {
+            let stream_id = tcp.metadata("tcp.stream").expect("tcp.stream expected in TCP packet").value();
+
+            match stream_id.parse::<u32>() {
+                Ok(stream_id) => {
+                    if stream != -1 && stream_id != u32::try_from(stream).expect("Stream ID conversion error") {
                         continue;
                     }
 
-                    if !stream_map.contains_key(&stream_id) {
-                        stream_map.insert(stream_id, vec![packet]);
-                    } else {
-                        match stream_map.get_mut(&stream_id) {
-                            Some(packets) => packets.push(packet),
-                            None => continue,
-                        };
-                    }
-                }
+                    stream_map.entry(stream_id).or_insert_with(Vec::new).push(packet);
+                },
+                Err(_) => log::warn!("Failed to parse tcp.stream metadata as u32"),
             }
         }
     }

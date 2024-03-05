@@ -68,9 +68,11 @@ pub fn find_meta_size(stream: u32, packets: &Vec<Packet>) -> Result<[u32; 6], &'
                 }).collect::<Result<Vec<u32>, _>>()?;
 
             if sizes.len() == 4 {
-                // This is the "magic observation" that somehow predicts the keystroke TCP len. 
+                // This is the "magic observation" that somehow predicts the "reverse" keystroke TCP len. 
                 // Explanation TBD, I have read a bunch of OpenSSH source code and can still not figure out
                 // why this works.
+                // Clarification: it does not predict the "forward" keystroke len. Forward is just
+                // New Keys +1 -8, apparently.
                 let size_reverse_keystroke = sizes[0] - 8 + 40;
 
                 meta_size = [

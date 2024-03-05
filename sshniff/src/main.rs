@@ -68,7 +68,7 @@ fn main() {
     let key = streams.keys().into_iter().next().unwrap();
 
     let x = analyser::core::find_meta_size(3, &streams.get(key).unwrap()).unwrap();
- //   println!("{x:?}");
+    println!("{x:?}");
     let y = analyser::core::find_meta_hassh(&streams.get(key).unwrap());
 //    println!("{y:?}");
     let z = analyser::core::find_meta_protocol(&streams.get(key).unwrap());
