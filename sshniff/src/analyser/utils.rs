@@ -6,10 +6,10 @@ use hex;
 
 #[derive(Clone, Debug)]
 pub enum KeystrokeType {
-    keystroke,
-    delete,
-    tab,
-    enter,
+    Keystroke,
+    Delete,
+    Tab,
+    Enter,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -247,14 +247,14 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
         if next_packet.length == -keystroke_size && next_next_packet.length == keystroke_size {
             log::debug!("Keystroke: {}", packet_infos[index].seq);
             keystrokes.push(Keystroke {
-                k_type: KeystrokeType::keystroke,
+                k_type: KeystrokeType::Keystroke,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
             });
         } else if next_packet.length == -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
             log::debug!("Delete: {}", packet_infos[index].seq);
             keystrokes.push(Keystroke {
-                k_type: KeystrokeType::delete,
+                k_type: KeystrokeType::Delete,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
             });
@@ -263,7 +263,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
 
             // TODO: refer to observation in notes -> I suspect this is far from fine-tuned.
             keystrokes.push(Keystroke {
-                k_type: KeystrokeType::tab,
+                k_type: KeystrokeType::Tab,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
             });
@@ -288,7 +288,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
             }
             
             keystrokes.push(Keystroke {
-                k_type: KeystrokeType::enter,
+                k_type: KeystrokeType::Enter,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: Some(response_size),
             });
@@ -419,22 +419,115 @@ pub fn scan_for_key_login<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i3
     false
 }
 
-// TODO: 
-// Note- Packet Strider defines the prompt size as prompt_size + 40 + 8, given the prompt_size
-// obtained in construct_meta; i.e NewKeys+4. I don't know why, and it doesn't seem to work. This
-// is in addition to the below TODO mentioning the +8 real prompt after the +4 fake prompt.
+// TODO: (verify) Looks like key offer sizes are static for each key:
+// RSA: 492 (560 in wireshark view)
+// ED25519: 140 (208 in wireshark view)
+// ECDSA: 196 (264 in wireshark view)
+// DSA: TBD
+//
+pub fn scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
+    log::info!("Looking for key offers.");
+    // TODO: (decide on standard)
+    // I know at some spots we use the negative size as indication of STC packets, but here it
+    // seems too cumbersome and counter-intuitive, as the stuff happening here can already be confusing.
+    assert!(prompt_size > 0);
+
+    // packet - was_accepted
+    let mut offers: Vec<(&PacketInfo, bool)> = Vec::new();
+    // Skip Kex init
+    let offset = 8;
+
+    for (index, packet_info) in packet_infos.iter().skip(offset).take(100).enumerate() {
+        // Look for login prompt
+        if packet_info.length.abs() != prompt_size {
+            continue;
+        }
+
+        // If we get a login prompt, check next-next (current +2) packet for prompt_size
+        // If prompt_size, it means a public key was offered (but not used to authenticate, either
+        // because it was rejected or no private key was found/used to authenticate).
+        let packet_after_next = &packet_infos[offset+index+2];
+
+        if packet_after_next.length.abs() == prompt_size {
+            // This is the client either offering a pubkey, or the client typing a wrong password.
+            // We compare it to the known sizes; there might be a small probability of a
+            // false-positive, if the password is buffered to the same size as a key. TODO
+            let packet_next = &packet_infos[offset+index+1];
+            // TODO 
+            // Take this further and create an Enum; include in the output what keys were offered,
+            // etc.
+            match packet_next.length {
+                492 => {
+                    // RSA
+                    log::debug!("Found RSA rejected key offer.");
+                },
+                140 => {
+                    // ED25519
+                    log::debug!("Found ED25519 rejected key offer.");
+                },
+                196 => {
+                    // ECDSA
+                    log::debug!("Found ECDSA rejected key offer.");
+                },
+                _ => {
+                    // If it doesn't match a known keysize, then it was _most likely_ a wrong
+                    // password.
+                    log::debug!("Found wrong password attempt, sized {}", packet_next.length);
+                    continue;
+                }
+            }
+            // PubKey offered, rejected
+            log::debug!("Found offered key of length {}, (rejected)", packet_next.length);
+            offers.push((packet_after_next, false));
+        } else if packet_after_next.length.abs() > prompt_size {
+            // If the packet after next is larger in size, client either logged in, or, offered a
+            // valid key
+
+            // If the packet after next of the current packet after next (so current packet +4) is a login
+            // prompt, then the client opted not to authenticate using the valid key.
+            let packet_after_four = &packet_infos[offset+index+4];
+
+            if packet_after_four.length.abs() == prompt_size {
+                // This means a key was offered, accepted, but not used to authenticate.
+                // i.e.: id_rsa.pub is in server's authorized_keys, but id_rsa was not used/found by
+                // client to auth.
+                // packet_after_four therefore indicates another prompt, either for another key
+                // offer or for the actual password.
+                let packet_next = &packet_infos[offset+index+1];
+
+                log::debug!("Found offered key of length {}, (accepted)", packet_next.length);
+                offers.push((packet_after_next, true));
+            } else {
+                // Not sure what else indicates. shouldn't happen, I guess.
+                break;
+            }
+        } 
+    }
+
+    offers
+}
+
+// The first prompt occurs at New Keys +4. Whether the user actually sees it (gets prompted for a
+// password) depends on whether there are any *public* keys in the ~/.ssh/ directory, as those will
+// be offered first (if key auth is enabled on server). Pubkey is offered (Client -> Server), and
+// if invalid, we get another prompt (Server -> Client). If the pubkey is accepted by the server, it will be
+// caught by scan_for_key_login.
+// Side-note, when offering a pubkey that is accepted by server, server sends a large packet that
+// also contains the login prompt; debug message is "Server accepts key: ".
+// This could be interesting for forensics.
 pub fn scan_for_login_attempts<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
     let mut attempts: Vec<(&PacketInfo, bool)> = Vec::new();
 
     let mut seen_first_prompt = false;
     // Skip Kex negotiation packets
     let offset = 8;
+    // TODO (fix)
+    // We have an edge case where if you log in after offering a valid key (but not using the
+    // privkey to auth), the login prompt size is larger.
+    // I suspect we can fix this when combining this function with the other login-related ones.
+    // Reference: see offer_ed25519_acc.pcapng
     for (index, packet_info) in packet_infos.iter().skip(offset).take(300).enumerate() {
         if packet_info.length == prompt_size {
-            // TODO: Packet Strider fails here; I observed that the first real login prompt comes
-            // at New Keys (+6, from windows host, or) +8, at least for curve25519-sha256 and sntrup761x25519-sha512@... 
-            // Prompt size is still at New Keys +4, but the actual prompt comes at +8, so we skip
-            // the first one (temporarily for testing)
             if !seen_first_prompt {
                 seen_first_prompt = true;
                 continue;

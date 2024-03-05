@@ -86,5 +86,8 @@ fn main() {
 
     let key_log = analyser::utils::scan_for_key_login(&vv, -52);
     println!("Logged in via key? {key_log}");
+
+    let key_offers = analyser::utils::scan_for_key_offers(&vv, 52);
+    //println!("{key_offers:?}");
 }
 
