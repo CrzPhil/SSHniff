@@ -1,6 +1,6 @@
 use rtshark::{Packet, RTShark};
 use core::panic;
-use std::{collections::HashMap, u128};
+use std::{collections::HashMap, u128, usize};
 use md5::{Digest, Md5};
 use hex;
 
@@ -527,57 +527,154 @@ pub fn scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i
     offers
 }
 
-// The first prompt occurs at New Keys +4. Whether the user actually sees it (gets prompted for a
-// password) depends on whether there are any *public* keys in the ~/.ssh/ directory, as those will
-// be offered first (if key auth is enabled on server). Pubkey is offered (Client -> Server), and
-// if invalid, we get another prompt (Server -> Client). If the pubkey is accepted by the server, it will be
-// caught by scan_for_key_login.
-// Side-note, when offering a pubkey that is accepted by server, server sends a large packet that
-// also contains the login prompt; debug message is "Server accepts key: ".
-// This could be interesting for forensics.
-pub fn scan_for_login_attempts<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
-    let mut attempts: Vec<(&PacketInfo, bool)> = Vec::new();
+// Idea: 
+// One function that simply iterates through the packets (maybe starting from NewKeys), and finds
+// the packet that indicates a successful login (the signature 36 & 28)
+// Returns the index of that packet, so then we can use that and the index of NewKeys to perform
+// the rest of the analysis on the slice inbetween, finding failed attempts, offered and accepted
+// keys, etc.
 
-    let mut seen_first_prompt = false;
-    // Skip Kex negotiation packets
-    let offset = 8;
-    // TODO (fix)
-    // We have an edge case where if you log in after offering a valid key (but not using the
-    // privkey to auth), the login prompt size is larger.
-    // I suspect we can fix this when combining this function with the other login-related ones.
-    // Reference: see offer_ed25519_acc.pcapng
-    for (index, packet_info) in packet_infos.iter().skip(offset).take(300).enumerate() {
-        if packet_info.length == prompt_size {
-            if !seen_first_prompt {
-                seen_first_prompt = true;
-                continue;
-            }
-            if is_successful_login(&[packet_info, &packet_infos[index+offset+1], &packet_infos[index+offset+2]], prompt_size) {
-                log::debug!("Sucessful login at {}", packet_info.seq);
-                attempts.push((packet_info, true));
+pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_index: usize, logged_in_at: usize) {
+    let offset = new_keys_index;
+    // We only care about the slice of packets between the first login prompt and up to the
+    // successful logon.
+    let initial_prompt = packet_infos
+                            .iter()
+                            .skip(offset)
+                            .take(logged_in_at - offset)
+                            .find(|packet_info| packet_info.length == prompt_size)
+                            .unwrap_or_else(|| {
+                                log::error!("Failed to find initial login promp.");
+                                panic!("Initial login prompt not found.");
+                            }).index;
+
+
+    // Things that we are looking for before successful login.
+    #[derive(Debug)]
+    enum Event {
+        WrongPassword,
+        CorrectPassword,
+        RejectedKey,
+        AcceptedKey,
+    }
+
+    let mut events: Vec<Event> = Vec::new();
+
+    let mut ptr: usize = initial_prompt;
+
+    let mut curr_packet: &PacketInfo = &packet_infos[ptr];
+    let mut next_packet: &PacketInfo;
+    let mut next_next_packet: &PacketInfo;
+    while (ptr + 2)  < packet_infos.len() && curr_packet.index != logged_in_at {
+        curr_packet = &packet_infos[ptr];
+        next_packet = &packet_infos[ptr+1];
+        next_next_packet = &packet_infos[ptr+2];
+
+        // A client packet sandwiched between prompt_size'd packets means either of two things:
+        // 1. A wrong password attempt 
+        // 2. A key was offered and rejected
+        if next_next_packet.length == prompt_size {
+            // To distinguish between these two options, we must compare the client packet's size
+            // to known pubkey offerings' sizes
+            
+            // RSA: 492-500 (558-560-568 in wireshark view) -> NOTE! 558/560 in WS are both tcp=492 bytes.
+            // ED25519: 140-148 (206-208-216 in wireshark view)
+            // ECDSA: 188-196-204-212 (256-264-272-280 (280 seen with aes256-gcm@openssh.com cipher) in wireshark view)
+            let event = match next_packet.length {
+                492..=500 => {
+                    log::debug!("RSA key offered and rejected.");
+                    Event::RejectedKey
+                },
+                140..=148 => {
+                    log::debug!("ED25519 key offered and rejected.");
+                    Event::RejectedKey
+                },
+                188..=212 => {
+                    log::debug!("ECDSA key offered and rejected.");
+                    Event:: RejectedKey
+                },
+                _ => {
+                    log::debug!("Wrong password attempt detected.");
+                    Event::WrongPassword
+                },
+            };
+
+            events.push(event);
+        } 
+        // This MUST be a successful login. 
+        // if ptr=prompt_size, then it must have been via a valid password:
+        // prompt_size -> <password> -> SSH2_MSG_USERAUTH_SUCCESS
+        else if next_next_packet.index == logged_in_at {
+            if curr_packet.length == prompt_size {
+                events.push(Event::CorrectPassword);
                 break;
             }
-            log::debug!("Failed login at {}", packet_info.seq);
-            attempts.push((packet_info, false));
+        }
+        // If the packet-after-next is not prompt-sized, it means a key was offered and accepted 
+        else {
+            // Again, the distinguishing factor will be the client packet's size.
+            // However, there is the edge case of an accepted key that is NOT used to authenticate.
+            // In that case, the prompt will be larger, indicating an accepted key, but if the
+            // private key is not found, or not specified, then the user is still prompted for a
+            // password. 
+            // The only distinguishing factor I can see is that with a password-protected key, the
+            // packet size is much larger than on password-based authentication.
+            // Otherwise, of course, latencies can be used to infer key-based vs password-based,
+            // especially with unencrypted private keys.
+            let event = match next_packet.length {
+                492..=500 => {
+                    log::debug!("RSA key offered and accepted.");
+                    Event::AcceptedKey
+                },
+                140..=148 => {
+                    log::debug!("ED25519 key offered and accepted.");
+                    Event::AcceptedKey
+                },
+                188..=212 => {
+                    log::debug!("ECDSA key offered and accepted.");
+                    Event::AcceptedKey 
+                },
+                _ => {
+                    log::debug!("Correct password detected.");
+                    println!("ptr: {ptr}");
+                    println!("seq: {}", curr_packet.seq);
+                    Event::CorrectPassword
+                },
+            };
+
+            events.push(event);
+
+            // The next packet after the accept key offer masy be a password, or another key offer.
+            // (at curr_packet + 4)
+            if packet_infos[ptr+4].index == logged_in_at {
+                log::debug!("Done!");
+                log::debug!("{events:?}");
+                break;
+            }
+        }
+
+        // Increment twice because we only want server packets
+        ptr += 2;
+    }
+
+    log::debug!("{events:?}");
+}
+
+// Looking for signature SSH2_MSG_USERAUTH_SUCCESS server response packet.
+pub fn find_successful_login(packet_infos: &[PacketInfo]) -> Option<usize> {
+    // Maybe, if the SshSession struct comes to fruition, we can use the Cipher field to tailor
+    // this comparison to the current session, instead of comparing it to "all" possibilities (yes,
+    // currently only two, but there could be more- now, and in future.)
+    
+    for (index, packet_info) in packet_infos.iter().take(40).enumerate() {
+        // See `notes.md` for how we get to these two lengths for the current common ciphers.
+        if packet_info.length == -28 || packet_info.length == -36 {
+            log::debug!("Successful login at packet {index}, sequence number {}", packet_info.seq);
+            return Some(index);
         }
     }
 
-    attempts
-}
-
-fn is_successful_login(packet_triplet: &[&PacketInfo; 3], prompt_size: i32) -> bool {
-    assert_eq!(packet_triplet[0].length, prompt_size);
-
-    if packet_triplet[1].length > 0 && packet_triplet[2].length != prompt_size {
-        return true;
-    } 
-
-    // TODO: this is in Packet Strider but I assume it's superfluous.
-//    if packet_triplet[1].length > 0 && packet_triplet[2].length < 0 && packet_triplet[2].length != prompt_size {
-//        return false;
-//    } 
-
-    false
+    None
 }
 
 fn is_keystroke(packet: &Packet, keystroke_size: u32) -> bool {

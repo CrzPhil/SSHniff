@@ -5,7 +5,7 @@ use simple_logger::SimpleLogger;
 use std::{collections::HashMap, fs};
 use rtshark::RTSharkBuilder;
 
-use crate::analyser::core::analyse;
+use crate::analyser::{core::analyse, utils::find_successful_login};
 
 /// SSHniff is a packet forensics tool for SSH
 #[derive(Parser, Debug)]
@@ -76,18 +76,21 @@ fn main() {
     let mut k = analyser::utils::create_size_matrix(&streams.get(key).unwrap());
 //    println!("{k:?}");
     let vv = analyser::utils::order_keystrokes(&mut k, 36);
+    let sl = analyser::utils::find_successful_login(&vv);
+    println!("{sl:?}");
+    analyser::utils::scan_login_data(&vv, -52, 7, sl.unwrap());
     //let vz = analyser::utils::scan_for_reverse_session_r_option(&vv, -52);
-    let login = analyser::utils::scan_for_login_attempts(&vv, -52);
-    //let asdf = analyser::utils::scan_for_host_key_accepts(&vv, login[2].0.index);
-    let logged_in_at = login[0].0.index;
-    println!("logged in at {logged_in_at}");
-
-    let tt = analyser::utils::scan_for_keystrokes(&vv, 36, logged_in_at);
-
-    let key_log = analyser::utils::scan_for_key_login(&vv, -52);
-    println!("Logged in via key? {key_log}");
-
-    let key_offers = analyser::utils::scan_for_key_offers(&vv, 52);
+//    let login = analyser::utils::scan_for_login_attempts(&vv, -52);
+//    //let asdf = analyser::utils::scan_for_host_key_accepts(&vv, login[2].0.index);
+//    let logged_in_at = login[0].0.index;
+//    println!("logged in at {logged_in_at}");
+//
+//    let tt = analyser::utils::scan_for_keystrokes(&vv, 36, logged_in_at);
+//
+//    let key_log = analyser::utils::scan_for_key_login(&vv, -52);
+//    println!("Logged in via key? {key_log}");
+//
+//    let key_offers = analyser::utils::scan_for_key_offers(&vv, 52);
     //println!("{key_offers:?}");
 }
 
