@@ -2,6 +2,14 @@ use crate::analyser::utils;
 use std::collections::HashMap;
 use rtshark::{Packet, RTShark, RTSharkBuilder};
 
+struct SshSession<'a> {
+    keystroke_size: u32,
+    prompt_size: u32,
+    logged_in_at: usize,
+    new_keys_at: usize,
+    results: Vec<utils::PacketInfo<'a>>,
+}
+
 
 pub fn analyse(streams: &HashMap<u32, Packet>) {
     log::info!("Starting analysis.");

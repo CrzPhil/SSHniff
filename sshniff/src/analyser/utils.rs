@@ -424,18 +424,22 @@ pub fn scan_for_key_login<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i3
 }
 
 // TODO: (verify) Looks like key offer sizes are static for each key:
-// checked -> similar- yes, static- no. Testing with other server showed a disparity by 8 bytes. So
+// checked -> similar- yes, static- no. Testing with other server showed a disparity by a few bytes. So
 // padding/algorithm-dependent? The former maybe, the latter definitely. Guess we'll have to go
 // through all algorithms, on different servers, and see if we can create a spectrum to classify
 // these properly. In the test the encryption was the same, but Kex algs were different;
 // curve25519-sha256 for the "smaller" packets, sntrup761x25519-sha512@openssh.com with +8 bytes.
 // Set same KexAlgorithm where sntrup was used; same byte disparity, so likely unrelated.
-// Note that server response sizes seem to stay constant for the respective keys, even where the
-// client-side packet sizing varies. 
+// I get the impression that this is more server-dependant rather than on the client side. 
+//
+// Note that server response sizes seem to also grow- and shrink accordingly to the variance in the
+// client packet:
+// e.g.,            ECDSA -> 264 (wireshark), accepted key responds with 232 (wireshark).
+// On another day,  ECDSA -> 262 (wireshark), accepted key responds with 230 (wireshark).
 
 // 
-// RSA: 492-500 (560-568 in wireshark view)
-// ED25519: 140-148 (208-216 in wireshark view)
+// RSA: 492-500 (558-560-568 in wireshark view) -> NOTE! 558/560 in WS are both tcp=492 bytes.
+// ED25519: 140-148 (206-208-216 in wireshark view)
 // ECDSA: 188-196-204-212 (256-264-272-280 (280 seen with aes256-gcm@openssh.com cipher) in wireshark view)
 // DSA: TBD
 //
