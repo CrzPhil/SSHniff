@@ -2,7 +2,7 @@ mod analyser;
 
 use clap::{Parser, ArgAction};
 use simple_logger::SimpleLogger;
-use std::{collections::HashMap, fs};
+use std::fs;
 
 use crate::analyser::{core::analyse, utils::find_successful_login};
 
@@ -66,29 +66,6 @@ fn main() {
     let streams = analyser::utils::load_file(args.file, args.nstream);
     let key = streams.keys().into_iter().next().unwrap();
 
-    let x = analyser::core::find_meta_size(3, &streams.get(key).unwrap()).unwrap();
-    println!("{x:?}");
-    let y = analyser::core::find_meta_hassh(&streams.get(key).unwrap());
-//    println!("{y:?}");
-    let z = analyser::core::find_meta_protocol(&streams.get(key).unwrap());
-//    println!("{z:?}");
-    let mut k = analyser::utils::create_size_matrix(&streams.get(key).unwrap());
-//    println!("{k:?}");
-    let vv = analyser::utils::order_keystrokes(&mut k, 36);
-    let sl = analyser::utils::find_successful_login(&vv);
-    println!("{sl:?}");
-    analyser::utils::scan_login_data(&vv, -52, 7, sl.unwrap());
-    //let vz = analyser::utils::scan_for_reverse_session_r_option(&vv, -52);
-    let asdf = analyser::utils::scan_for_host_key_accepts(&vv, sl.unwrap());
-//    let logged_in_at = login[0].0.index;
-//    println!("logged in at {logged_in_at}");
-//
-    let tt = analyser::utils::scan_for_keystrokes(&vv, 36, sl.unwrap());
-//
-//    let key_log = analyser::utils::scan_for_key_login(&vv, -52);
-//    println!("Logged in via key? {key_log}");
-//
-//    let key_offers = analyser::utils::scan_for_key_offers(&vv, 52);
-    //println!("{key_offers:?}");
+    analyser::core::analyse(streams.get(key).unwrap());
 }
 
