@@ -1,159 +1,187 @@
-use crate::analyser::utils;
+use crate::analyser::utils::{self, scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data};
+use core::panic;
 use std::collections::HashMap;
 use rtshark::{Packet, RTShark, RTSharkBuilder};
 
-struct SshSession<'a> {
-    keystroke_size: u32,
-    prompt_size: u32,
-    logged_in_at: usize,
+use super::utils::PacketInfo;
+
+#[derive(Debug)]
+pub struct SshSession<'a> {
+    stream: u32,
     new_keys_at: usize,
+    keystroke_size: u32,
+    prompt_size: i32,
+    hassh_s: String,
+    hassh_c: String,
+    logged_in_at: usize,
     results: Vec<utils::PacketInfo<'a>>,
 }
 
-
-pub fn analyse(streams: &HashMap<u32, Packet>) {
+pub fn analyse(packet_stream: &[Packet]) {
     log::info!("Starting analysis.");
 
-    for stream in streams {
+    let mut session = SshSession {
+        stream: 0,
+        new_keys_at: 0,
+        keystroke_size: 0,
+        prompt_size: 0,
+        hassh_s: String::new(),
+        hassh_c: String::new(),
+        logged_in_at: 0,
+        results: vec![],
+    };
 
+    // Get NewKeys, Keystroke Indicator, Login Prompt
+    let kex = match find_meta_size(packet_stream) {
+        Ok(infos) => infos,
+        Err(err) => {
+            log::error!("{err}");
+            panic!();
+        },
+    };
+
+    session.new_keys_at = kex[0].index;
+    session.keystroke_size = kex[1].length as u32 - 8;
+    session.prompt_size = kex[2].length;
+    log::debug!("{session:?}");
+
+    let hassh_server: String;
+    let hassh_client: String;
+    match find_meta_hassh(packet_stream) {
+        Ok(vals) => {
+            hassh_server = String::from(&vals[0]);
+            hassh_client = String::from(&vals[1]);
+        }
+        Err(err) => {
+            log::error!("{err}");
+            panic!();
+        }
     }
+
+    session.hassh_s = hassh_server;
+    session.hassh_c = hassh_client;
+    log::debug!("{session:?}");
+
+    let protocols = match find_meta_protocol(packet_stream) {
+        Ok(protocols) => protocols,
+        Err(err) => {
+            log::error!("{err}");
+            panic!();
+        }
+    };
+    log::debug!("{protocols:?}");
+
+    let mut size_matrix = utils::create_size_matrix(packet_stream);
+    let ordered = utils::order_keystrokes(&mut size_matrix, session.keystroke_size);
+
+    let logged_in_at = match utils::find_successful_login(&ordered) {
+        Some(index) => index,
+        None => {
+            log::error!("Failed to find login packet.");
+            panic!();
+        }
+    };
+
+    session.logged_in_at = logged_in_at;
+
+    scan_login_data(&ordered, session.prompt_size, session.new_keys_at, session.logged_in_at);
+
+    let _hostkey_acc = match scan_for_host_key_accepts(&ordered, session.logged_in_at) {
+        Some(pinfo) => pinfo,
+        None => {
+            log::error!("TODO... hostkey_acc");
+            panic!();
+        }
+    };
+
+    let _keystrokes = scan_for_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
 }
 
 // Looks at first 50 packets
 // Finds (21) New Keys packet (Client)
 // Gets lengths of next four packets
-// Performs dark magic calculation that actually determines TCP length of keystrokes.
-// TODO: Maybe more useful to return a hashmap of: "keystroke_size": xyz, "login_size": xyz, so I
-// don't have to keep coming back to decipher what index is what item...
-// Temporarily:
-// 0: Stream
-// 1: Reverse Keystroke Size
-// 2: New_Keys_1
-// 3: New_Keys_2
-// 4: New_Keys_3
-// 5: Login Size
-pub fn find_meta_size(stream: u32, packets: &Vec<Packet>) -> Result<[u32; 6], &'static str> {
+// Returns: New Keys, Keystroke indicator, Login Prompt
+pub fn find_meta_size(packets: &[Packet]) -> Result<[PacketInfo; 3], &'static str> {
     log::info!("Determining keystroke sizings");
-    let meta_size: [u32; 6];
-    let new_keys_code: u8 = 21;
-//    let size_newkeys_next: u32;
-//    let size_newkeys_next2: u32;
-//    let size_newkeys_next3: u32;
-//    let size_login_prompt: u32;
-//    let size_reverse_keystroke: u32;
-
 
     // Looking at the first 50 packets should be sufficient (taken from PacketStrider)
     for (i, packet) in packets.iter().enumerate().take(50) {
-        
-        // Can we just unwrap?
-        let ssh_layer = match packet.layer_name("ssh") {
-            Some(layer) => layer,
+        // Check if New Keys (21)
+        // Note! some sloppiness on the `rtshark` devs' part. The server reply in the kex includes
+        // a New Keys message with code 21, but it comes after KEX reply 31, so when we access the
+        // packet's metadata, we only get the first one (31) and skip the packet. here it works in
+        // our favour, but we might get issues later, so noteworthy.
+        match utils::get_message_code(&packet) {
+            Some(code) => {
+                if code != 21 {
+                    continue;
+                }
+            },
             None => continue,
         };
 
-        let message_code = match ssh_layer.metadata("ssh.message_code") {
-            Some(meta) => meta.value().parse::<u8>().unwrap(),
-            None => continue,
-        };
+        // TODO: This is neat but unreadable once I came back to it. 
+        // We look ahead to the next four packets following the New Keys (21) packet.
+        // We get the packets' respective TCP lengths.
+        // Packet i+1 to i+3: "new keys x"
+        // Packet i+4: Size of login prompt
+        // These sizes are used to perform a calculation that reveals the keystroke packets'
+        // TCP length.
+        // Get the TCP sizes of the next four packets
+        let sizes = (1..=4)
+            .map(|offset| {
+                packets.get(i + offset)
+                    .and_then(|p| p.layer_name("tcp"))
+                    .and_then(|tcp_layer| tcp_layer.metadata("tcp.len"))
+                    .map(|meta| meta.value().parse::<u32>())
+                    .ok_or("TCP layer or length metadata not found")
+                    .and_then(|res| res.map_err(|_| "Parsing TCP length failed")) 
+            }).collect::<Result<Vec<u32>, _>>()?;
 
-        if message_code == new_keys_code {
-            // TODO: This is neat but unreadable once I came back to it. 
-            // We look ahead to the next four packets following the New Keys (21) packet.
-            // We get the packets' respective TCP lengths.
-            // Packet i+1 to i+3: "new keys x"
-            // Packet i+4: Size of login prompt
-            // These sizes are used to perform a calculation that reveals the keystroke packets'
-            // TCP length.
-            let sizes = (1..=4)
-                .map(|offset| {
-                    packets.get(i + offset)
-                        .and_then(|p| p.layer_name("tcp"))
-                        .and_then(|tcp_layer| tcp_layer.metadata("tcp.len"))
-                        .map(|meta| meta.value().parse::<u32>())
-                        .ok_or("TCP layer or length metadata not found")
-                        .and_then(|res| res.map_err(|_| "Parsing TCP length failed")) 
-                }).collect::<Result<Vec<u32>, _>>()?;
+        if sizes.len() == 4 {
+            // NewKeys+1 is our indicator for keystroke size, so we need to ensure this holds, else
+            // the implementation might have changed.
+            assert_eq!(sizes[0], sizes[1]);
 
-            if sizes.len() == 4 {
-                // This is the "magic observation" that somehow predicts the "reverse" keystroke TCP len. 
-                // Explanation TBD, I have read a bunch of OpenSSH source code and can still not figure out
-                // why this works.
-                // Clarification: it does not predict the "forward" keystroke len. Forward is just
-                // New Keys +1 -8, apparently.
-                let size_reverse_keystroke = sizes[0] - 8 + 40;
+//            // This is the "magic observation" that somehow predicts the "reverse" keystroke TCP len. 
+//            // Explanation TBD, I have read a bunch of OpenSSH source code and can still not figure out
+//            // why this works.
+//            // Clarification: it does not predict the "forward" keystroke len. Forward is just
+//            // New Keys +1 -8, apparently.
+//            let size_reverse_keystroke = sizes[0] - 8 + 40;
+//
+//            meta_size = [
+//                stream,
+//                size_reverse_keystroke,
+//                sizes[0],
+//                sizes[1],
+//                sizes[2],
+//                sizes[3],
+//            ];
 
-                meta_size = [
-                    stream,
-                    size_reverse_keystroke,
-                    sizes[0],
-                    sizes[1],
-                    sizes[2],
-                    sizes[3],
-                ];
+            // i:   New Keys (21)
+            // i+1: Keystroke indicator (length - 8 = keystroke_size)
+            // i+4: First login prompt (size indicator)
+            let out: [PacketInfo; 3] = [
+                PacketInfo::new(&packet, i, Some("New Keys (21)")),
+                PacketInfo::new(packets.get(i+1).unwrap(), i+1, Some("Keystroke Size Indicator")),
+                PacketInfo::new(packets.get(i+4).unwrap(), i+4, Some("First login prompt")),
+            ];
 
-                return Ok(meta_size);
-            }
-
-            return Err("Not enough packets following the New Keys packet");
+            return Ok(out);
         }
+
+        return Err("Not enough packets following the New Keys packet");
+        
     }
 
     Err("New Keys packet not found within the first 50 packets")
-//        // Check if message_code == 21 --> New Keys
-//        match ssh_layer.metadata("ssh.message_code") {
-//            Some(meta) => {
-//                if meta.value().parse::<u8>().expect("Message code is always a digit.") == new_keys_code {
-//                    // Look ahead one packet to get size_newkeys_next
-//                    let next_packet = &packets[i+1];
-//                    size_newkeys_next = next_packet.layer_name("tcp").unwrap()
-//                        .metadata("tcp.len").unwrap()
-//                        .value().parse::<u32>().expect("TCP length is always a digit.");
-//
-//                    // Look ahead two packets to get size_newkeys_next2
-//                    let next_packet = &packets[i+2];
-//                    size_newkeys_next2 = next_packet.layer_name("tcp").unwrap()
-//                        .metadata("tcp.len").unwrap()
-//                        .value().parse::<u32>().expect("TCP length is always a digit.");
-//
-//                    // Look ahead three packets to get size_newkeys_next3
-//                    let next_packet = &packets[i+3];
-//                    size_newkeys_next3 = next_packet.layer_name("tcp").unwrap()
-//                        .metadata("tcp.len").unwrap()
-//                        .value().parse::<u32>().expect("TCP length is always a digit.");
-//
-//                    // Look ahead four packets to get login prompt size
-//                    let next_packet = &packets[i+4];
-//                    size_login_prompt = next_packet.layer_name("tcp").unwrap()
-//                        .metadata("tcp.len").unwrap()
-//                        .value().parse::<u32>().expect("TCP length is always a digit.");
-//
-//                    // "Magical Observation" 
-//                    // No idea how he figured this out, but it actually correctly calculates the
-//                    // size of each keystroke's TCP length. 
-//                    size_reverse_keystroke = size_newkeys_next - 8 + 40;
-//
-//                    meta_size[0] = stream;
-//                    meta_size[1] = size_reverse_keystroke;
-//                    meta_size[2] = size_newkeys_next;
-//                    meta_size[3] = size_newkeys_next2;
-//                    meta_size[4] = size_newkeys_next3;
-//                    meta_size[5] = size_login_prompt;
-//
-//                    break;
-//                } 
-//            }
-//            None => continue,
-//        }
-//    }
-//
-//    Ok(meta_size)
 }
 
 // TODO: looks like there's actually a `ssh.kex.hassh` metadata associated with these KEX Init
 // packets, from which we can directly grab the hassh values, as opposed to calculating them. 
 // Not sure if this is a wireshark thing or actually transmitted, so I'm disregarding it for now.
-pub fn find_meta_hassh(packets: &Vec<Packet>) -> Result<[String; 2], &'static str> {
+pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 2], &'static str> {
     log::info!("Calculating hassh");
 
     let mut hassh_client_found: bool = false;
@@ -242,7 +270,7 @@ pub fn find_meta_hassh(packets: &Vec<Packet>) -> Result<[String; 2], &'static st
     Ok([hassh.ok_or("Failed to get hassh")?, hassh_server.ok_or("Failed to get hassh_server")?])
 }
 
-pub fn find_meta_protocol(packets: &Vec<Packet>) -> Result<[String; 6], &'static str> {
+pub fn find_meta_protocol(packets: &[Packet]) -> Result<[String; 6], &'static str> {
     assert!(packets.len() > 0);
 
     let mut protocol_client = None;
