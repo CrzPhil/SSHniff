@@ -18,6 +18,31 @@ pub struct PacketInfo<'a> {
     pub seq: i64,
     pub length: i32,    // We use i32 to allow for negative values, indicating server packets
     packet: &'a Packet,
+    pub description: Option<&'a str>,   // For later printing (?)
+}
+
+impl<'a> PacketInfo<'a> {
+    pub fn new(packet: &'a Packet, index: usize, description: Option<&'a str>) -> Self {
+        let tcp_layer = packet.layer_name("tcp").unwrap();
+        let seq = tcp_layer.metadata("tcp.seq").unwrap().value().parse::<i64>().unwrap();
+        let mut length = tcp_layer.metadata("tcp.len").unwrap().value().parse::<i32>().unwrap();
+
+        let srcport: u32 = tcp_layer.metadata("tcp.srcport").unwrap().value().parse().unwrap();
+        let dstport: u32 = tcp_layer.metadata("tcp.dstport").unwrap().value().parse().unwrap();
+
+        // Server-to-Client indicated by negative length
+        if dstport > srcport {
+            length = -length;
+        }
+
+        Self {
+            index,
+            seq,
+            length,
+            packet,
+            description,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -87,7 +112,8 @@ pub fn load_file(filepath: String, stream: i32) -> HashMap<u32, Vec<Packet>> {
     streams
 }
 
-pub fn create_size_matrix(packets: &Vec<Packet>) -> Vec<PacketInfo> {
+pub fn create_size_matrix(packets: &[Packet]) -> Vec<PacketInfo> {
+    log::info!("Creating PacketInfo matrix.");
     packets.iter().enumerate().map(|(index, packet)| { 
         let tcp_layer = packet.layer_name("tcp").unwrap();
         let length: i32 = tcp_layer.metadata("tcp.len").unwrap().value().parse().unwrap();
@@ -100,11 +126,12 @@ pub fn create_size_matrix(packets: &Vec<Packet>) -> Vec<PacketInfo> {
             seq,
             length: adjusted_length,
             packet,
+            description: None,
         }
     }).collect()
 }
 
-pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_size: i32) -> Vec<PacketInfo<'a>> {
+pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_size: u32) -> Vec<PacketInfo<'a>> {
     log::info!("Ordering keystrokes.");
     let mut ordered_packets: Vec<PacketInfo<'a>> = Vec::new();
     let size = packet_infos.len();
@@ -115,7 +142,7 @@ pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_si
     while ordered_packets.len() < size {
         found_match = false;
 
-        if pinfo_is_keystroke(&packet_infos[curr], keystroke_size) {
+        if is_keystroke(&packet_infos[curr], keystroke_size) {
             ordered_packets.push(packet_infos.remove(curr));
             let mut itr: usize = 0;
             while !found_match && itr < packet_infos.len() && itr < 10 {
@@ -375,8 +402,8 @@ pub fn scan_for_host_key_accepts<'a>(packet_infos: &[PacketInfo<'a>], logged_in_
     None
 }
 
-fn get_message_code(packet: &Packet) -> Option<u32> {
-    let ssh_layer = packet.layer_name("ssh").unwrap();
+pub fn get_message_code(packet: &Packet) -> Option<u32> {
+    let ssh_layer = packet.layer_name("ssh").expect("No ssh layer found when seeking message code");
 
     let message_code = match ssh_layer.metadata("ssh.message_code") {
         Some(message_code) => Some(message_code.value().parse::<u32>().unwrap()),
@@ -389,44 +416,6 @@ fn get_message_code(packet: &Packet) -> Option<u32> {
 // TODO (feature)
 // We can add a check for when a stream's last packet is prompt_size, pretty sure this indicates a
 // rejected login and connection termination.
-
-pub fn scan_for_key_login<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> bool {
-    for (index, packet_info) in packet_infos.iter().take(40).enumerate() {
-        // New Keys (21)
-        match get_message_code(packet_info.packet) {
-            Some(code) => {
-                if code != 21 {
-                    continue;
-                }
-            },
-            None => continue,
-        };
-
-        // The New Keys (21) packet is *not* followed by message_code
-        let next_packet = packet_infos[index+1].packet;
-        match get_message_code(&next_packet) {
-            Some(_) => continue,
-            None => {}
-        };
-
-        assert!(index+8 <= packet_infos.len());
-
-        // Check New Keys +4 == prompt_size, for redundancy (TODO?)
-        if packet_infos[index + 4].length != prompt_size {
-            // _Should_ never happen
-            log::error!("Inconsistent login prompt detected.");
-            return false;
-        }
-
-        // If a password prompt appears, it does so at NewKeys +8. 
-        // If not, we only see prompt_size at +4, and +8 is differently sized. 
-        return packet_infos[index + 8].length != prompt_size;
-    }
-
-    log::error!("Escaped the loop while looking for key-based login. _Should_ not happen.");
-    false
-}
-
 // TODO: (verify) Looks like key offer sizes are static for each key:
 // checked -> similar- yes, static- no. Testing with other server showed a disparity by a few bytes. So
 // padding/algorithm-dependent? The former maybe, the latter definitely. Guess we'll have to go
@@ -538,6 +527,7 @@ pub fn scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i
 // the rest of the analysis on the slice inbetween, finding failed attempts, offered and accepted
 // keys, etc.
 
+// TODO: return something. Maybe in the results format with populated descriptions.
 pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_index: usize, logged_in_at: usize) {
     let offset = new_keys_index;
     // We only care about the slice of packets between the first login prompt and up to the
@@ -648,11 +638,9 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
 
             events.push(event);
 
-            // The next packet after the accept key offer masy be a password, or another key offer.
+            // The next packet after the accept key offer may be a password, or another key offer.
             // (at curr_packet + 4)
             if packet_infos[ptr+4].index == logged_in_at {
-                log::debug!("Done!");
-                log::debug!("{events:?}");
                 break;
             }
         }
@@ -681,13 +669,8 @@ pub fn find_successful_login(packet_infos: &[PacketInfo]) -> Option<usize> {
     None
 }
 
-fn is_keystroke(packet: &Packet, keystroke_size: u32) -> bool {
-    let tcp_layer = packet.layer_name("tcp").expect("TCP layer not found");
-    tcp_layer.metadata("tcp.len").unwrap().value().parse::<u32>().unwrap() == keystroke_size
-}
-
-fn pinfo_is_keystroke(packet: &PacketInfo, keystroke_size: i32) -> bool {
-    packet.length == keystroke_size
+fn is_keystroke(packet: &PacketInfo, keystroke_size: u32) -> bool {
+    packet.length == keystroke_size as i32
 }
 
 pub fn get_md5_hash(string_in: String) -> String {
