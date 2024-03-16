@@ -150,6 +150,9 @@ pub fn find_meta_size(stream: u32, packets: &Vec<Packet>) -> Result<[u32; 6], &'
 //    Ok(meta_size)
 }
 
+// TODO: looks like there's actually a `ssh.kex.hassh` metadata associated with these KEX Init
+// packets, from which we can directly grab the hassh values, as opposed to calculating them. 
+// Not sure if this is a wireshark thing or actually transmitted, so I'm disregarding it for now.
 pub fn find_meta_hassh(packets: &Vec<Packet>) -> Result<[String; 2], &'static str> {
     log::info!("Calculating hassh");
 

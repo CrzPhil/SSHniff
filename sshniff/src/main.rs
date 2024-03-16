@@ -3,7 +3,6 @@ mod analyser;
 use clap::{Parser, ArgAction};
 use simple_logger::SimpleLogger;
 use std::{collections::HashMap, fs};
-use rtshark::RTSharkBuilder;
 
 use crate::analyser::{core::analyse, utils::find_successful_login};
 
@@ -80,12 +79,11 @@ fn main() {
     println!("{sl:?}");
     analyser::utils::scan_login_data(&vv, -52, 7, sl.unwrap());
     //let vz = analyser::utils::scan_for_reverse_session_r_option(&vv, -52);
-//    let login = analyser::utils::scan_for_login_attempts(&vv, -52);
-//    //let asdf = analyser::utils::scan_for_host_key_accepts(&vv, login[2].0.index);
+    let asdf = analyser::utils::scan_for_host_key_accepts(&vv, sl.unwrap());
 //    let logged_in_at = login[0].0.index;
 //    println!("logged in at {logged_in_at}");
 //
-//    let tt = analyser::utils::scan_for_keystrokes(&vv, 36, logged_in_at);
+    let tt = analyser::utils::scan_for_keystrokes(&vv, 36, sl.unwrap());
 //
 //    let key_log = analyser::utils::scan_for_key_login(&vv, -52);
 //    println!("Logged in via key? {key_log}");

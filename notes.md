@@ -1,4 +1,34 @@
 
+## Features 
+
+#### Packet Strider adaptation
+- [X] Determine keystroke size
+- [X] Determine login prompt size
+- [X] Determine protocols
+- [X] Determine hassh
+- [ ] Detect `-R` option 
+- [X] Detect login attempts
+- [ ] Detect key accept into `known_hosts`
+- [ ] Detect Agent Forwarding 
+- [ ] Detect file exfiltration
+- [ ] Detect file infiltration 
+- [ ] Reverse SSH ???
+- [ ] Classify keystrokes
+
+#### New features
+- [X] Detect key offers / accepts
+- [X] Identify key types 
+- [ ] Output latencies into processable format
+- [ ] Real-time monitoring
+
+## To-do's 
+> Most `TODO`'s are in the codebase, as comments. The rest, more general ones, are here, so that I don't forget.
+- [ ] Refactor code into proper files (`scan.rs`, etc.)
+- [ ] Refactor functions to public / private, as needed
+- [ ] Write documentation (?)
+- [ ] More test cases with serialised packet data from PCAPs 
+- [ ] Coverage test (?) 
+
 ## Ciphers
 
 The cipher struct is defined as follows: 

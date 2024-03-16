@@ -337,8 +337,9 @@ pub fn scan_for_agent_forwarding(packet_infos: &[PacketInfo]) {
 
 // Look for client's acceptance of server's SSH host key 
 // Happens when pubkey is in known_hosts.
-pub fn scan_for_host_key_accepts<'a>(packet_infos: &'a[PacketInfo<'a>], logged_in_at: usize) {
-    let mut result: PacketInfo;
+pub fn scan_for_host_key_accepts<'a>(packet_infos: &[PacketInfo<'a>], logged_in_at: usize) -> Option<PacketInfo<'a>> {
+    log::info!("Looking for host key acceptance by Client.");
+    let result: PacketInfo;
 
     for (index, packet_info) in packet_infos.iter().take(100).enumerate() {
         if index == logged_in_at {
@@ -366,9 +367,12 @@ pub fn scan_for_host_key_accepts<'a>(packet_infos: &'a[PacketInfo<'a>], logged_i
         // This is the packet containing the server's key fingerprint.
         // TODO: In packet strider this is simply logged, but I think it's worth keeping track of
         // this packet and actually outputting the fingerprint; maybe make it optional.
-        let previous_packet = packet_infos[index-1].packet;
-        let ssh_layer = previous_packet.layer_name("ssh");
+        result = packet_infos[index-1];
+        
+        return Some(result); 
     }
+
+    None
 }
 
 fn get_message_code(packet: &Packet) -> Option<u32> {
