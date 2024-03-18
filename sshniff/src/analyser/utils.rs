@@ -12,6 +12,15 @@ pub enum KeystrokeType {
     Enter,
 }
 
+// Things that we are looking for before successful login.
+#[derive(Debug, PartialEq)]
+pub enum Event {
+    WrongPassword,
+    CorrectPassword,
+    RejectedKey,
+    AcceptedKey,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct PacketInfo<'a> {
     pub index: usize,
@@ -438,7 +447,7 @@ pub fn get_message_code(packet: &Packet) -> Option<u32> {
 //
 // TODO: With ETM ciphers with known length, we can have a separate classification, perhaps even
 // more precise.
-pub fn scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
+pub fn _scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
     log::info!("Looking for key offers.");
     // TODO: (decide on standard)
     // I know at some spots we use the negative size as indication of STC packets, but here it
@@ -528,7 +537,7 @@ pub fn scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i
 // keys, etc.
 
 // TODO: return something. Maybe in the results format with populated descriptions.
-pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_index: usize, logged_in_at: usize) {
+pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_index: usize, logged_in_at: usize) -> Vec<Event> {
     let offset = new_keys_index;
     // We only care about the slice of packets between the first login prompt and up to the
     // successful logon.
@@ -543,14 +552,6 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
                             }).index;
 
 
-    // Things that we are looking for before successful login.
-    #[derive(Debug)]
-    enum Event {
-        WrongPassword,
-        CorrectPassword,
-        RejectedKey,
-        AcceptedKey,
-    }
 
     let mut events: Vec<Event> = Vec::new();
 
@@ -650,6 +651,7 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
     }
 
     log::debug!("{events:?}");
+    events
 }
 
 // Looking for signature SSH2_MSG_USERAUTH_SUCCESS server response packet.

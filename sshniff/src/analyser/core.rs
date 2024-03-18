@@ -1,7 +1,6 @@
 use crate::analyser::utils::{self, scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data};
 use core::panic;
-use std::collections::HashMap;
-use rtshark::{Packet, RTShark, RTSharkBuilder};
+use rtshark::Packet;
 
 use super::utils::PacketInfo;
 
@@ -462,22 +461,29 @@ pub fn find_meta_protocol(packets: &[Packet]) -> Result<[String; 6], &'static st
 mod tests {
     use super::*;
     use lazy_static::lazy_static;
+    use std::collections::HashMap;
+    use std::env;
 
     lazy_static!(
         static ref STREAMS: HashMap<u32, Vec<Packet>> = {
-            utils::load_file("/home/outlaw/Desktop/Code/Rust/SSHniff/sshniff/test_captures/known_pass_lsal_id_exit.pcapng".to_string(), -1)
+            let base = env!("CARGO_MANIFEST_DIR");
+            utils::load_file(format!("{base}/test_captures/known_pass_lsal_id_exit.pcapng").to_string(), -1)
         };
     );
 
     #[test]
     fn test_meta_sizes() {
-        let meta_size = find_meta_size(0, &STREAMS.get(&0).unwrap()).unwrap();
-        // Reverse Keystroke Size
-        assert_eq!(76, meta_size[1]);
-        // Actual keystroke size 
-        assert_eq!(36, meta_size[2]-8);
+        let meta_size = find_meta_size(&STREAMS.get(&0).unwrap()).unwrap();
+        let newkeys = meta_size[0];
+        let keysize = meta_size[1];
+        let prompt = meta_size[2];
+
+        // newkeys sequence number
+        assert_eq!(1606, newkeys.seq);
+        // keystroke size 
+        assert_eq!(36, keysize.length-8);
         // Prompt size
-        assert_eq!(52, meta_size[5]);
+        assert_eq!(-52, prompt.length);
     }
 
     #[test]
@@ -531,11 +537,12 @@ mod tests {
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // One login attempt- login successful
-        let login = utils::scan_for_login_attempts(&ordered, -52);
+        let login_index = utils::find_successful_login(&ordered);
+        assert!(login_index.is_some());
 
         // Server login prompt preceding successful login
-        let logged_in_at = login[0].0;
-        assert_eq!(2163, logged_in_at.seq);
+        let logged_in_at = ordered[login_index.unwrap()];
+        assert_eq!(2215, logged_in_at.seq);
     }
 
     #[test]
@@ -556,71 +563,7 @@ mod tests {
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // No key was used
-        let key_log = utils::scan_for_key_login(&ordered, -52);
-        assert!(!key_log);
-    }
-
-    #[test]
-    fn test_monolith() {
-        let streams = utils::load_file("/home/outlaw/Desktop/Code/Rust/SSHniff/sshniff/test_captures/known_pass_lsal_id_exit.pcapng".to_string(), -1);
-        let stream_id = streams.keys().into_iter().next().unwrap();
-
-        assert_eq!(0, *stream_id);
-        assert_eq!(1, streams.len());
-
-        let meta_size = find_meta_size(*stream_id, &streams.get(stream_id).unwrap()).unwrap();
-        // Reverse Keystroke Size
-        assert_eq!(76, meta_size[1]);
-        // Actual keystroke size 
-        assert_eq!(36, meta_size[2]-8);
-        // Prompt size
-        assert_eq!(52, meta_size[5]);
-
-        // hassh and hassh_server
-        let meta_hassh = find_meta_hassh(&streams.get(stream_id).unwrap()).unwrap();
-        let hassh = meta_hassh[0].clone();
-        let hassh_server = meta_hassh[1].clone();
-        assert_eq!("aae6b9604f6f3356543709a376d7f657", hassh);
-        assert_eq!("779664e66160bf75999f091fce5edb5a", hassh_server);
-
-        // Protocols and source/destination
-        let meta_protocol = find_meta_protocol(&streams.get(stream_id).unwrap()).unwrap();
-        let c_proto = meta_protocol[0].clone();
-        let s_proto = meta_protocol[1].clone();
-        let src = format!("{}:{}", meta_protocol[2], meta_protocol[3]);
-        let dst = format!("{}:{}", meta_protocol[4], meta_protocol[5]);
-        assert_eq!("SSH-2.0-OpenSSH_9.6", c_proto);
-        assert_eq!("SSH-2.0-OpenSSH_8.4p1 Raspbian-5+deb11u3", s_proto);
-        assert_eq!("192.168.0.212:50502", src);
-        assert_eq!("192.168.0.45:22", dst);
-
-        // Ordered packets are as many as before sorting
-        let mut size_matrix = utils::create_size_matrix(&streams.get(stream_id).unwrap());
-        let original_size = size_matrix.len();
-        let ordered = utils::order_keystrokes(&mut size_matrix, 36);
-        assert_eq!(original_size, ordered.len());
-
-        // No -R was used
-        let reverse_r = utils::scan_for_reverse_session_r_option(&ordered, -52);
-        assert!(reverse_r.is_none());
-
-        // One login attempt- login successful
-        let login = utils::scan_for_login_attempts(&ordered, -52);
-        assert_eq!(1, login.len());
-        assert!(login[0].1);
-
-        // let hostkey_acc = utils::scan_for_host_key_accepts(&vv, login[2].0.index);
-        
-        // Server login prompt preceding successful login
-        let logged_in_at = login[0].0;
-        assert_eq!(2163, logged_in_at.seq);
-
-        // TODO: better keystroke checking (check for type?)
-        let keystrokes = utils::scan_for_keystrokes(&ordered, 36, logged_in_at.index);
-        assert_eq!(15, keystrokes.len());
-
-        // No key was used
-        let key_log = utils::scan_for_key_login(&ordered, -52);
-        assert!(!key_log);
+        let key_log = utils::scan_login_data(&ordered, -52, 7, 17);
+        assert_eq!(key_log, vec![utils::Event::AcceptedKey, utils::Event::RejectedKey, utils::Event::CorrectPassword]);
     }
 }
