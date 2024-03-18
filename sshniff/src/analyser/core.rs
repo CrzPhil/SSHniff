@@ -1,8 +1,8 @@
-use crate::analyser::utils::{self, scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data};
+use super::scan::{scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data, find_successful_login, scan_for_reverse_session_r_option};
+use super::containers;
+use super::utils;
 use core::panic;
 use rtshark::Packet;
-
-use super::utils::PacketInfo;
 
 #[derive(Debug)]
 pub struct SshSession<'a> {
@@ -13,7 +13,7 @@ pub struct SshSession<'a> {
     hassh_s: String,
     hassh_c: String,
     logged_in_at: usize,
-    results: Vec<utils::PacketInfo<'a>>,
+    results: Vec<containers::PacketInfo<'a>>,
 }
 
 pub fn analyse(packet_stream: &[Packet]) {
@@ -73,7 +73,7 @@ pub fn analyse(packet_stream: &[Packet]) {
     let mut size_matrix = utils::create_size_matrix(packet_stream);
     let ordered = utils::order_keystrokes(&mut size_matrix, session.keystroke_size);
 
-    let logged_in_at = match utils::find_successful_login(&ordered) {
+    let logged_in_at = match find_successful_login(&ordered) {
         Some(index) => index,
         None => {
             log::error!("Failed to find login packet.");
@@ -100,7 +100,7 @@ pub fn analyse(packet_stream: &[Packet]) {
 // Finds (21) New Keys packet (Client)
 // Gets lengths of next four packets
 // Returns: New Keys, Keystroke indicator, Login Prompt
-pub fn find_meta_size(packets: &[Packet]) -> Result<[PacketInfo; 3], &'static str> {
+pub fn find_meta_size(packets: &[Packet]) -> Result<[containers::PacketInfo; 3], &'static str> {
     log::info!("Determining keystroke sizings");
 
     // Looking at the first 50 packets should be sufficient (taken from PacketStrider)
@@ -161,10 +161,10 @@ pub fn find_meta_size(packets: &[Packet]) -> Result<[PacketInfo; 3], &'static st
             // i:   New Keys (21)
             // i+1: Keystroke indicator (length - 8 = keystroke_size)
             // i+4: First login prompt (size indicator)
-            let out: [PacketInfo; 3] = [
-                PacketInfo::new(&packet, i, Some("New Keys (21)")),
-                PacketInfo::new(packets.get(i+1).unwrap(), i+1, Some("Keystroke Size Indicator")),
-                PacketInfo::new(packets.get(i+4).unwrap(), i+4, Some("First login prompt")),
+            let out: [containers::PacketInfo; 3] = [
+                containers::PacketInfo::new(&packet, i, Some("New Keys (21)")),
+                containers::PacketInfo::new(packets.get(i+1).unwrap(), i+1, Some("Keystroke Size Indicator")),
+                containers::PacketInfo::new(packets.get(i+4).unwrap(), i+4, Some("First login prompt")),
             ];
 
             return Ok(out);
@@ -336,123 +336,6 @@ pub fn find_meta_protocol(packets: &[Packet]) -> Result<[String; 6], &'static st
     ])
 }
 
-//pub fn extract_core_info(stream:u32, packets: &Vec<Packet>) -> Result<[u32; 12], &'static str> {
-//    let kex_init_code = 20;
-//    let new_keys_code = 21;
-//
-//    let mut meta_size: [u32; 5];
-//
-//    for (i, packet) in packets.iter().enumerate().take(50) {
-//        
-//        // Can we just unwrap?
-//        let ssh_layer = match packet.layer_name("ssh") {
-//            Some(layer) => layer,
-//            None => continue,
-//        };
-//
-//        let message_code = match ssh_layer.metadata("ssh.message_code") {
-//            Some(meta) => meta.value().parse::<u8>().unwrap(),
-//            None => continue,
-//        };
-//        
-//        match message_code {
-//            kex_init_code => {
-//                let packets_after = [packets.get(i+1).unwrap(), packets.get(i+2).unwrap(), packets.get(i+3).unwrap(), packets.get(i+4).unwrap()];
-//                meta_size = get_sizes(packets_after)?;
-//            },
-//            new_keys_code => {
-//
-//            }
-//        };
-//
-//        if message_code == new_keys_code {
-//            // We look ahead to the next four packets following the New Keys (21) packet.
-//            // We get the packets' respective TCP lengths.
-//            // Packet i+1 to i+3: "new keys x"
-//            // Packet i+4: Size of login prompt
-//            // These sizes are used to perform a calculation that reveals the keystroke packets'
-//            // TCP length.
-//            let sizes = (1..=4)
-//                .map(|offset| {
-//                    packets.get(i + offset)
-//                        .and_then(|p| p.layer_name("tcp"))
-//                        .and_then(|tcp_layer| tcp_layer.metadata("tcp.len"))
-//                        .map(|meta| meta.value().parse::<u32>())
-//                        .ok_or("TCP layer or length metadata not found")
-//                        .and_then(|res| res.map_err(|_| "Parsing TCP length failed")) 
-//                }).collect::<Result<Vec<u32>, _>>()?;
-//
-//            if sizes.len() == 4 {
-//                // This is the "magic observation" that somehow predicts the keystroke TCP len. 
-//                // Explanation TBD, I have read a bunch of OpenSSH source code and can still not figure out
-//                // why this works.
-//                let size_reverse_keystroke = sizes[0] - 8 + 40;
-//
-//                let meta_size = [
-//                    stream,
-//                    size_reverse_keystroke,
-//                    sizes[0],
-//                    sizes[1],
-//                    sizes[2],
-//                    sizes[3],
-//                    0,
-//                    0,
-//                    0,
-//                    0,
-//                    0,
-//                    0
-//                ];
-//
-//                return Ok(meta_size);
-//            }
-//
-//            return Err("Not enough packets following the New Keys packet");
-//        }
-//    }
-//
-//    Err("New Keys packet not found within the first 50 packets")
-//}
-//
-//// TODO: this can be refactored to much simpler code. 
-//// Currently just a PoC to see if we can have one function iterating the packets and outsourcing to
-//// sub-functions wherever necessary to handle codes and extract the necessary information.
-//fn get_sizes(packets_after: [&Packet; 4]) -> Result<[u32; 5], &'static str> {
-//    // We look ahead to the next four packets following the New Keys (21) packet.
-//    // We get the packets' respective TCP lengths.
-//    // Packet +1 to +3: "new keys x"
-//    // Packet +4: Size of login prompt
-//    // These sizes are used to perform a calculation that reveals the keystroke packets'
-//    // TCP length.
-//    let sizes = (1..=4)
-//        .map(|offset| {
-//            packets_after.get(offset)
-//                .and_then(|p| p.layer_name("tcp"))
-//                .and_then(|tcp_layer| tcp_layer.metadata("tcp.len"))
-//                .map(|meta| meta.value().parse::<u32>())
-//                .ok_or("TCP layer or length metadata not found")
-//                .and_then(|res| res.map_err(|_| "Parsing TCP length failed")) 
-//        }).collect::<Result<Vec<u32>, _>>()?;
-//
-//    if sizes.len() == 4 {
-//        // This is the "magic observation" that somehow predicts the keystroke TCP len. 
-//        // Explanation TBD, I have read a bunch of OpenSSH source code and can still not figure out
-//        // why this works.
-//        let size_reverse_keystroke = sizes[0] - 8 + 40;
-//
-//        let meta_size = [
-//            size_reverse_keystroke,
-//            sizes[0],
-//            sizes[1],
-//            sizes[2],
-//            sizes[3],
-//        ];
-//
-//        return Ok(meta_size);
-//    }
-//
-//    Err("Not enough packets following the New Keys packet")
-//}
-
 // TODO: 
 // Populate with more pcaps, for each scenario.
 // Kept the monolith, but maybe do away with file-loading (except for a single test) and then just
@@ -526,7 +409,7 @@ mod tests {
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // No -R was used
-        let reverse_r = utils::scan_for_reverse_session_r_option(&ordered, -52);
+        let reverse_r = scan_for_reverse_session_r_option(&ordered, -52);
         assert!(reverse_r.is_none());
     }
 
@@ -537,7 +420,7 @@ mod tests {
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // One login attempt- login successful
-        let login_index = utils::find_successful_login(&ordered);
+        let login_index = find_successful_login(&ordered);
         assert!(login_index.is_some());
 
         // Server login prompt preceding successful login
@@ -552,7 +435,7 @@ mod tests {
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // TODO: better keystroke checking (check for type?)
-        let keystrokes = utils::scan_for_keystrokes(&ordered, 36, 20);
+        let keystrokes = scan_for_keystrokes(&ordered, 36, 20);
         assert_eq!(15, keystrokes.len());
     }
 
@@ -563,7 +446,7 @@ mod tests {
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // No key was used
-        let key_log = utils::scan_login_data(&ordered, -52, 7, 17);
-        assert_eq!(key_log, vec![utils::Event::AcceptedKey, utils::Event::RejectedKey, utils::Event::CorrectPassword]);
+        let key_log = scan_login_data(&ordered, -52, 7, 17);
+        assert_eq!(key_log, vec![containers::Event::AcceptedKey, containers::Event::RejectedKey, containers::Event::CorrectPassword]);
     }
 }

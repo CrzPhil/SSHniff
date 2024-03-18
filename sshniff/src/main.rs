@@ -4,8 +4,6 @@ use clap::{Parser, ArgAction};
 use simple_logger::SimpleLogger;
 use std::fs;
 
-use crate::analyser::{core::analyse, utils::find_successful_login};
-
 /// SSHniff is a packet forensics tool for SSH
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
