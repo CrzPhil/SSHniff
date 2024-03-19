@@ -1,6 +1,14 @@
 use rtshark::Packet;
+use serde::Serialize;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize)]
+pub struct Keystroke {
+    pub k_type: KeystrokeType,
+    pub timestamp: i64,
+    pub response_size: Option<u128>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum KeystrokeType {
     Keystroke,
     Delete,
@@ -52,12 +60,4 @@ impl<'a> PacketInfo<'a> {
         }
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct Keystroke {
-    pub k_type: KeystrokeType,
-    pub timestamp: i64,
-    pub response_size: Option<u128>,
-}
-
 

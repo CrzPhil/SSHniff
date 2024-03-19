@@ -68,5 +68,6 @@ fn main() {
 
     let session = analyser::core::analyse(streams.get(key).unwrap());
     output::print_results(&session);
+    let _ = output::save_keystroke_sequences(&session.keystroke_data, std::path::Path::new(&format!("{}/keystrokes.json", args.output_dir.unwrap()).to_string()));
 }
 

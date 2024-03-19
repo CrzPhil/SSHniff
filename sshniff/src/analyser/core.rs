@@ -1,3 +1,5 @@
+use crate::ui::output::save_keystroke_sequences;
+
 use super::scan::{scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data, find_successful_login, scan_for_reverse_session_r_option};
 use super::containers;
 use super::utils;
@@ -15,6 +17,7 @@ pub struct SshSession<'a> {
     pub hassh_c: String,
     pub logged_in_at: usize,
     pub results: Vec<containers::PacketInfo<'a>>,
+    pub keystroke_data: Vec<Vec<containers::Keystroke>>,
 }
 
 pub fn analyse(packet_stream: &[Packet]) -> SshSession {
@@ -30,6 +33,7 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
         hassh_c: String::new(),
         logged_in_at: 0,
         results: vec![],
+        keystroke_data: vec![],
     };
 
     // Get NewKeys, Keystroke Indicator, Login Prompt
@@ -96,7 +100,9 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
         }
     };
 
-    let _keystrokes = scan_for_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
+    let keystrokes = scan_for_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
+    let processed = process_keystrokes(keystrokes);
+    session.keystroke_data = processed;
 
     session
 }
@@ -339,6 +345,44 @@ pub fn find_meta_protocol(packets: &[Packet]) -> Result<[String; 6], &'static st
         dip.to_string(),
         dport.to_string()
     ])
+}
+
+// To produce the output, group keystroke sequences together.
+// A sequence is the first keystroke up to the return, including the returned size.
+pub fn process_keystrokes(keystrokes: Vec<containers::Keystroke>) -> Vec<Vec<containers::Keystroke>> {
+    let mut out: Vec<Vec<containers::Keystroke>> = Vec::new();
+    let mut itr = 0;
+
+    let mut tmp_vec: Vec<containers::Keystroke> = Vec::new();
+    let mut curr: &containers::Keystroke;
+
+    while itr < keystrokes.len() {
+        curr = &keystrokes[itr];
+        tmp_vec.push(curr.clone());
+
+        if curr.k_type == containers::KeystrokeType::Enter {
+            make_relative(&mut tmp_vec);
+            out.push(tmp_vec.clone());
+            tmp_vec.clear();
+        }
+
+        itr += 1;
+    }
+
+    out
+}
+
+// Transform timestamps into latencies for a given sequence
+fn make_relative(sequence: &mut Vec<containers::Keystroke>) {
+    let mut prev_time = sequence[0].timestamp;
+
+    for keystroke in sequence.iter_mut().skip(1) {
+        let tmp = keystroke.timestamp;
+        keystroke.timestamp = tmp - prev_time;
+        prev_time = tmp;
+    }
+
+    sequence[0].timestamp = 0;
 }
 
 // TODO: 
