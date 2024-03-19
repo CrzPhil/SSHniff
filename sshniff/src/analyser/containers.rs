@@ -6,6 +6,9 @@ pub enum KeystrokeType {
     Delete,
     Tab,
     Enter,
+    ArrowHorizontal,
+    ArrowVertical,
+    Unknown,
 }
 
 // Things that we are looking for before successful login.

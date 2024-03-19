@@ -1,6 +1,6 @@
 use core::panic;
 use std::{u128, usize};
-use crate::analyser::utils::get_message_code;
+use crate::analyser::utils::{self, get_message_code};
 use super::containers::{PacketInfo, Event, KeystrokeType, Keystroke};
 
 // Returns timestamp of -R initiation (or None)
@@ -86,11 +86,103 @@ pub fn scan_for_reverse_session_r_option(ordered_packets: &Vec<PacketInfo>, prom
 }
 
 pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size: i32, logged_in_at: usize) -> Vec<Keystroke> {
+    // Start after logged_in_at
     let mut index = logged_in_at;
     let mut keystrokes: Vec<Keystroke> = Vec::new();
 
+    // We look ahead two packets at most
     while index < packet_infos.len() - 2 {
-        if packet_infos[index].length != keystroke_size {
+        // TODO: looks like if there are previous commands and arrow=up, the echo size can give
+        // away information about how long the command is. Longer command = larger size. 
+        // Also, left & right arrows seem to always echo keystroke_size, whereas up and down vary
+        // in sizes; depending on failure, success, command length, etc.
+        
+        // Arrow keys seem to be keystroke_size + 8 from client, echo may be keystroke_size-
+        // depends on what arrow key and if there are previous commands. Setting 16 as bound.
+        // TODO !!! : This 16 is also set in ordered_packets, better to set a const somewhere to ensure
+        // parity
+        if packet_infos[index].length > keystroke_size && packet_infos[index].length <= (keystroke_size + 16) { 
+            let next_packet = packet_infos[index+1];
+            // Problem:
+            // If the cursor is not at the end of the command and a character is typed/deleted, the
+            // returned echo is larger (+8) than keystroke_size. How do we stop it from being
+            // interpreted as a Return? probably need to loop inside this match until Return, then
+            // skip the sequence.
+            
+            // Left arrow seems to echo keystroke_size, Right arrow (if before end of command)
+            // seems to echo same size (> keystroke_size)
+            if next_packet.length == -keystroke_size || next_packet.length == packet_infos[index].length {
+                log::debug!("Horizontal Arrow: {}", packet_infos[index].seq);
+                keystrokes.push(Keystroke {
+                    k_type: KeystrokeType::ArrowHorizontal,
+                    timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
+                    response_size: None,
+                });
+
+                let arrow_length = packet_infos[index].length;
+
+                // We move forward two packets; We now loop through packets that could be
+                // keystrokes or backspaces, until we hit a return, indicated by multiple
+                // sequential server packets.
+                index += 2;
+
+                // Problem: 
+                // Packet ordering breaks important sequences that allow us to infer the arrow
+                // keys and subsequent actions.
+                loop {
+                    if utils::is_server_packet(packet_infos[index+2].packet) {
+                        break;
+                    }
+                    // Deletion echoes are same size, but we can't reliably distinguish between
+                    // keystrokes and deletions after moving into the command with arrows.
+                    if packet_infos[index].length == keystroke_size && packet_infos[index+1].length == -arrow_length {
+                        log::debug!("Delete OR Keystroke: {}", packet_infos[index].seq);
+                        keystrokes.push(Keystroke {
+                            k_type: KeystrokeType::Unknown,
+                            timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
+                            response_size: None,
+                        });
+                    }
+                    // interestingly, it looks like keystroke echoes can be larger if in the middle
+                    // of the command. But not always.
+                    else if packet_infos[index].length == keystroke_size && packet_infos[index+1].length < -arrow_length {
+                        log::debug!("Delete OR Keystroke: {}", packet_infos[index].seq);
+                        keystrokes.push(Keystroke {
+                            k_type: KeystrokeType::Unknown,
+                            timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
+                            response_size: None,
+                        });
+                    }
+                    // Check for further arrow keys
+                    else if packet_infos[index].length == arrow_length { //&& packet_infos[index+1].length == -keystroke_size 
+                        log::debug!("Horizontal Arrow: {}", packet_infos[index].seq);
+                        keystrokes.push(Keystroke {
+                            k_type: KeystrokeType::ArrowHorizontal,
+                            timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
+                            response_size: None,
+                        });
+                    }
+                    // If we are back to Client/Server echos of keystroke_size, we must be at the
+                    // end of the command and can exit this loop.
+                    // I am not sure if we can reach this point, though.
+                    else if packet_infos[index].length == keystroke_size && packet_infos[index+1].length == -keystroke_size {
+                        todo!("Reachable?")
+                    } 
+
+                    index += 2;
+                }
+                continue;
+            } else {
+                log::debug!("Vertical Arrow: {}", packet_infos[index].seq);
+                keystrokes.push(Keystroke {
+                    k_type: KeystrokeType::ArrowVertical,
+                    timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
+                    response_size: None,
+                });
+            }
+            index += 2;
+            continue;
+        } else if packet_infos[index].length != keystroke_size {
             index += 1;
             continue;
         }
@@ -98,22 +190,28 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
         let next_packet = packet_infos[index+1];
         let next_next_packet = packet_infos[index+2];
 
-        // Check for keystroke -> response (echo) -> keystroke
-        if next_packet.length == -keystroke_size && next_next_packet.length == keystroke_size {
+        // Check for keystroke -> response (echo) -> keystroke 
+        // Edge case in OR statement: normal keystroke followed by arrow key (larger size)
+        if next_packet.length == -keystroke_size && next_next_packet.length == keystroke_size || next_next_packet.length == keystroke_size + 8 {
             log::debug!("Keystroke: {}", packet_infos[index].seq);
             keystrokes.push(Keystroke {
                 k_type: KeystrokeType::Keystroke,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
             });
-        } else if next_packet.length == -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
+        } 
+        // Backspace/Delete results in an echo that is keystroke_size + 8
+        // Problem: Ctrl+a (jump to start) and Ctrl+e also fulfill this condition.
+        else if next_packet.length == -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
             log::debug!("Delete: {}", packet_infos[index].seq);
             keystrokes.push(Keystroke {
                 k_type: KeystrokeType::Delete,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
             });
-        } else if next_packet.length < -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
+        } 
+        // Tab, TBD if feasible
+        else if next_packet.length < -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
             log::debug!("Tab: {}", packet_infos[index].seq);
 
             // TODO: refer to observation in notes -> I suspect this is far from fine-tuned.
@@ -122,7 +220,10 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
             });
-        } else if next_packet.length <= -keystroke_size && next_next_packet.length <= -keystroke_size && !keystrokes.is_empty() {
+        } 
+        // Returns are also keystroke_size, but we can distinguish them from the additional data
+        // packets returned. 
+        else if next_packet.length <= -keystroke_size && next_next_packet.length <= -keystroke_size && !keystrokes.is_empty() {
             log::debug!("Return: {}", packet_infos[index].seq);
             // After running a command (by sending enter/return), the return is echoed (but not -keystroke_size length, interestingly)
             // We then iterate through the next packets until a Client packet, which indicates the end of the response (at least for typical commands).

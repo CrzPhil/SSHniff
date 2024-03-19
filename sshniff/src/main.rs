@@ -1,7 +1,9 @@
 mod analyser;
+mod ui;
 
 use clap::{Parser, ArgAction};
 use simple_logger::SimpleLogger;
+use ui::output;
 use std::fs;
 
 /// SSHniff is a packet forensics tool for SSH
@@ -64,6 +66,7 @@ fn main() {
     let streams = analyser::utils::load_file(args.file, args.nstream);
     let key = streams.keys().into_iter().next().unwrap();
 
-    analyser::core::analyse(streams.get(key).unwrap());
+    let session = analyser::core::analyse(streams.get(key).unwrap());
+    output::print_results(&session);
 }
 

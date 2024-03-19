@@ -65,6 +65,11 @@ pub fn load_file(filepath: String, stream: i32) -> HashMap<u32, Vec<Packet>> {
     streams
 }
 
+pub fn is_server_packet(packet: &Packet) -> bool {
+        let tcp_layer = packet.layer_name("tcp").unwrap();
+        tcp_layer.metadata("tcp.dstport").unwrap().value() > tcp_layer.metadata("tcp.srcport").unwrap().value()
+}
+
 pub fn create_size_matrix(packets: &[Packet]) -> Vec<PacketInfo> {
     log::info!("Creating PacketInfo matrix.");
     packets.iter().enumerate().map(|(index, packet)| { 
@@ -107,10 +112,9 @@ pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_si
                     // intercepted.
                     ordered_packets.push(packet_infos.remove(curr+itr));
                     found_match = true;
-                } else if packet_infos[curr+itr].length == -(keystroke_size as i32 + 8) {
-                    // TODO - investigate/improve
-                    // Why the +8? When is a keystroke response 8 bytes larger?
-                    // Maybe with RET or TAB completion, i've definitely seen this happen.
+                } 
+                // Echoes are sometimes slightly larger (see scan.rs), so we need to account for that.
+                else if packet_infos[curr+itr].length == -(keystroke_size as i32 + 8) || packet_infos[curr+itr].length == -(keystroke_size as i32 + 16) {
                     ordered_packets.push(packet_infos.remove(curr+itr));
                     found_match = true;
                 }

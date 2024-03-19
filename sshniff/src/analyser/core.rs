@@ -6,17 +6,18 @@ use rtshark::Packet;
 
 #[derive(Debug)]
 pub struct SshSession<'a> {
-    stream: u32,
-    new_keys_at: usize,
-    keystroke_size: u32,
-    prompt_size: i32,
-    hassh_s: String,
-    hassh_c: String,
-    logged_in_at: usize,
-    results: Vec<containers::PacketInfo<'a>>,
+    pub stream: u32,
+    pub new_keys_at: usize,
+    pub keystroke_size: u32,
+    pub prompt_size: i32,
+    pub protocols: (String, String),
+    pub hassh_s: String,
+    pub hassh_c: String,
+    pub logged_in_at: usize,
+    pub results: Vec<containers::PacketInfo<'a>>,
 }
 
-pub fn analyse(packet_stream: &[Packet]) {
+pub fn analyse(packet_stream: &[Packet]) -> SshSession {
     log::info!("Starting analysis.");
 
     let mut session = SshSession {
@@ -24,6 +25,7 @@ pub fn analyse(packet_stream: &[Packet]) {
         new_keys_at: 0,
         keystroke_size: 0,
         prompt_size: 0,
+        protocols: (String::new(), String::new()),
         hassh_s: String::new(),
         hassh_c: String::new(),
         logged_in_at: 0,
@@ -69,6 +71,7 @@ pub fn analyse(packet_stream: &[Packet]) {
         }
     };
     log::debug!("{protocols:?}");
+    session.protocols = (String::from(protocols[0].clone()), String::from(protocols[1].clone()));
 
     let mut size_matrix = utils::create_size_matrix(packet_stream);
     let ordered = utils::order_keystrokes(&mut size_matrix, session.keystroke_size);
@@ -94,6 +97,8 @@ pub fn analyse(packet_stream: &[Packet]) {
     };
 
     let _keystrokes = scan_for_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
+
+    session
 }
 
 // Looks at first 50 packets
