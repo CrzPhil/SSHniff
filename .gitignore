@@ -4,3 +4,4 @@
 target/
 debug/
 Cargo.lock
+ascii_art
