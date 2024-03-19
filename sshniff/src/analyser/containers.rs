@@ -1,6 +1,6 @@
 use rtshark::Packet;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeystrokeType {
     Keystroke,
     Delete,
@@ -12,7 +12,7 @@ pub enum KeystrokeType {
 }
 
 // Things that we are looking for before successful login.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Event {
     WrongPassword,
     CorrectPassword,

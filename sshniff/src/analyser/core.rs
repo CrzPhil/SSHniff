@@ -353,15 +353,19 @@ mod tests {
     use std::env;
 
     lazy_static!(
-        static ref STREAMS: HashMap<u32, Vec<Packet>> = {
+        static ref LSAL_STREAM: HashMap<u32, Vec<Packet>> = {
             let base = env!("CARGO_MANIFEST_DIR");
             utils::load_file(format!("{base}/test_captures/known_pass_lsal_id_exit.pcapng").to_string(), -1)
+        };
+        static ref ARROW_STREAM: HashMap<u32, Vec<Packet>> = {
+            let base = env!("CARGO_MANIFEST_DIR");
+            utils::load_file(format!("{base}/test_captures/lstlpn_to_ss_tlpn_nopass_exit.pcapng").to_string(), -1)
         };
     );
 
     #[test]
     fn test_meta_sizes() {
-        let meta_size = find_meta_size(&STREAMS.get(&0).unwrap()).unwrap();
+        let meta_size = find_meta_size(&LSAL_STREAM.get(&0).unwrap()).unwrap();
         let newkeys = meta_size[0];
         let keysize = meta_size[1];
         let prompt = meta_size[2];
@@ -377,7 +381,7 @@ mod tests {
     #[test]
     fn test_hassh() {
         // hassh and hassh_server
-        let meta_hassh = find_meta_hassh(&STREAMS.get(&0).unwrap()).unwrap();
+        let meta_hassh = find_meta_hassh(&LSAL_STREAM.get(&0).unwrap()).unwrap();
         let hassh = meta_hassh[0].clone();
         let hassh_server = meta_hassh[1].clone();
         assert_eq!("aae6b9604f6f3356543709a376d7f657", hassh);
@@ -387,7 +391,7 @@ mod tests {
     #[test]
     fn test_protocol() {
         // Protocols and source/destination
-        let meta_protocol = find_meta_protocol(&STREAMS.get(&0).unwrap()).unwrap();
+        let meta_protocol = find_meta_protocol(&LSAL_STREAM.get(&0).unwrap()).unwrap();
         let c_proto = meta_protocol[0].clone();
         let s_proto = meta_protocol[1].clone();
         let src = format!("{}:{}", meta_protocol[2], meta_protocol[3]);
@@ -401,7 +405,7 @@ mod tests {
     #[test]
     fn test_ordering() {
         // Ordered packets are as many as before sorting
-        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let mut size_matrix = utils::create_size_matrix(&LSAL_STREAM.get(&0).unwrap());
         let original_size = size_matrix.len();
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
         assert_eq!(original_size, ordered.len());
@@ -410,7 +414,7 @@ mod tests {
     #[test]
     fn test_reverse_r() {
         // Needs ordered packets
-        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let mut size_matrix = utils::create_size_matrix(&LSAL_STREAM.get(&0).unwrap());
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // No -R was used
@@ -421,7 +425,7 @@ mod tests {
     #[test]
     fn test_login() {
         // Needs ordered packets
-        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let mut size_matrix = utils::create_size_matrix(&LSAL_STREAM.get(&0).unwrap());
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // One login attempt- login successful
@@ -436,7 +440,7 @@ mod tests {
     #[test]
     fn test_keystrokes() {
         // Needs ordered packets
-        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let mut size_matrix = utils::create_size_matrix(&LSAL_STREAM.get(&0).unwrap());
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // TODO: better keystroke checking (check for type?)
@@ -445,9 +449,49 @@ mod tests {
     }
 
     #[test]
+    fn test_arrows() {
+        // Needs ordered packets
+        let mut size_matrix = utils::create_size_matrix(&ARROW_STREAM.get(&0).unwrap());
+        let ordered = utils::order_keystrokes(&mut size_matrix, 36);
+
+        let keystrokes = scan_for_keystrokes(&ordered, 36, 20);
+        let mut typevec: Vec<containers::KeystrokeType> = Vec::new();
+        for keystroke in &keystrokes {
+            typevec.push(keystroke.k_type.clone());
+        }
+
+        assert_eq!(vec![
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::ArrowHorizontal,
+            containers::KeystrokeType::ArrowHorizontal,
+            containers::KeystrokeType::ArrowHorizontal,
+            containers::KeystrokeType::ArrowHorizontal,
+            containers::KeystrokeType::ArrowHorizontal,
+            containers::KeystrokeType::ArrowHorizontal,
+            containers::KeystrokeType::ArrowHorizontal,
+            containers::KeystrokeType::Unknown,
+            containers::KeystrokeType::Unknown,
+            containers::KeystrokeType::Enter,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Keystroke,
+            containers::KeystrokeType::Enter
+            ], typevec);
+        assert_eq!(23, keystrokes.len());
+    }
+
+    #[test]
     fn test_key_login() {
         // Needs ordered packets
-        let mut size_matrix = utils::create_size_matrix(&STREAMS.get(&0).unwrap());
+        let mut size_matrix = utils::create_size_matrix(&LSAL_STREAM.get(&0).unwrap());
         let ordered = utils::order_keystrokes(&mut size_matrix, 36);
 
         // No key was used
