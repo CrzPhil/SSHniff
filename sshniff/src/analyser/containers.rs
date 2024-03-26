@@ -6,6 +6,7 @@ pub struct Keystroke {
     pub k_type: KeystrokeType,
     pub timestamp: i64,
     pub response_size: Option<u128>,
+    pub seq: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

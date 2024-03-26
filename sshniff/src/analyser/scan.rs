@@ -3,7 +3,7 @@ use std::{u128, usize};
 use crate::analyser::utils::{self, get_message_code};
 use super::containers::{PacketInfo, Event, KeystrokeType, Keystroke};
 
-// Returns timestamp of -R initiation (or None)
+/// Returns timestamp of -R initiation (or None)
 pub fn scan_for_reverse_session_r_option(ordered_packets: &Vec<PacketInfo>, prompt_size: i32) -> Option<i64> {
     let size = ordered_packets.len();
     let first_timestamp = ordered_packets[0].packet.timestamp_micros().unwrap();
@@ -85,6 +85,9 @@ pub fn scan_for_reverse_session_r_option(ordered_packets: &Vec<PacketInfo>, prom
     None
 }
 
+/// Finds and classifies keystrokes from a given session. 
+///
+/// Determines keystroke type based on size and context.
 pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size: i32, logged_in_at: usize) -> Vec<Keystroke> {
     // Start after logged_in_at
     let mut index = logged_in_at;
@@ -117,6 +120,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                     k_type: KeystrokeType::ArrowHorizontal,
                     timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                     response_size: None,
+                    seq: packet_infos[index].seq,
                 });
 
                 let arrow_length = packet_infos[index].length;
@@ -141,6 +145,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                             k_type: KeystrokeType::Unknown,
                             timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                             response_size: None,
+                            seq: packet_infos[index].seq,
                         });
                     }
                     // interestingly, it looks like keystroke echoes can be larger if in the middle
@@ -151,6 +156,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                             k_type: KeystrokeType::Unknown,
                             timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                             response_size: None,
+                            seq: packet_infos[index].seq,
                         });
                     }
                     // Check for further arrow keys
@@ -160,6 +166,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                             k_type: KeystrokeType::ArrowHorizontal,
                             timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                             response_size: None,
+                            seq: packet_infos[index].seq,
                         });
                     }
                     // If we are back to Client/Server echos of keystroke_size, we must be at the
@@ -178,6 +185,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                     k_type: KeystrokeType::ArrowVertical,
                     timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                     response_size: None,
+                            seq: packet_infos[index].seq,
                 });
             }
             index += 2;
@@ -198,6 +206,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                 k_type: KeystrokeType::Keystroke,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
+                            seq: packet_infos[index].seq,
             });
         } 
         // Backspace/Delete results in an echo that is keystroke_size + 8
@@ -208,6 +217,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                 k_type: KeystrokeType::Delete,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
+                            seq: packet_infos[index].seq,
             });
         } 
         // Tab, TBD if feasible
@@ -219,6 +229,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                 k_type: KeystrokeType::Tab,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: None,
+                            seq: packet_infos[index].seq,
             });
         } 
         // Returns are also keystroke_size, but we can distinguish them from the additional data
@@ -247,6 +258,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                 k_type: KeystrokeType::Enter,
                 timestamp: packet_infos[index].packet.timestamp_micros().unwrap(),
                 response_size: Some(response_size),
+                            seq: packet_infos[index].seq,
             });
 
             // We already set index = end in the loop, so no increment needed.
@@ -259,10 +271,11 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
     keystrokes
 }
 
-// Scan for packet signature of Agent forwarding
-// TODO: Testing has shown this as inconclusive. 
-// I cannot verify the described behaviour; the Server-Client sandwich is found, but also in non-agent-forwarding connections.
-// Further, the sizings are off and inconsistent. As this is low-priority, I will postpone implementation and research. 
+/// Scans for packet signature of Agent forwarding
+///
+/// TODO: Testing has shown this as inconclusive. 
+/// I cannot verify the described behaviour; the Server-Client sandwich is found, but also in non-agent-forwarding connections.
+/// Further, the sizings are off and inconsistent. As this is low-priority, I will postpone implementation and research. 
 pub fn scan_for_agent_forwarding(packet_infos: &[PacketInfo]) {
     let mut ctr = 0;
 
@@ -291,8 +304,9 @@ pub fn scan_for_agent_forwarding(packet_infos: &[PacketInfo]) {
     }
 }
 
-// Look for client's acceptance of server's SSH host key 
-// Happens when pubkey is in known_hosts.
+/// Looks for client's acceptance of server's SSH host key.
+///
+/// Happens when pubkey is in known_hosts.
 pub fn scan_for_host_key_accepts<'a>(packet_infos: &[PacketInfo<'a>], logged_in_at: usize) -> Option<PacketInfo<'a>> {
     log::info!("Looking for host key acceptance by Client.");
     let result: PacketInfo;
@@ -438,14 +452,9 @@ pub fn _scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: 
     offers
 }
 
-// Idea: 
-// One function that simply iterates through the packets (maybe starting from NewKeys), and finds
-// the packet that indicates a successful login (the signature 36 & 28)
-// Returns the index of that packet, so then we can use that and the index of NewKeys to perform
-// the rest of the analysis on the slice inbetween, finding failed attempts, offered and accepted
-// keys, etc.
-
-// TODO: return something. Maybe in the results format with populated descriptions.
+/// Scans for login-related findings, such as key offers, key accepts/rejects, password attempts.
+///
+/// Uses research findings of packet length ranges to classify key types (RSA, ED25519, ECDSA).
 pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_index: usize, logged_in_at: usize) -> Vec<Event> {
     let offset = new_keys_index;
     // We only care about the slice of packets between the first login prompt and up to the
@@ -456,11 +465,9 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
                             .take(logged_in_at - offset)
                             .find(|packet_info| packet_info.length == prompt_size)
                             .unwrap_or_else(|| {
-                                log::error!("Failed to find initial login promp.");
+                                log::error!("Failed to find initial login prompt.");
                                 panic!("Initial login prompt not found.");
                             }).index;
-
-
 
     let mut events: Vec<Event> = Vec::new();
 
@@ -563,7 +570,7 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
     events
 }
 
-// Looking for signature SSH2_MSG_USERAUTH_SUCCESS server response packet.
+/// Looks for signature SSH2_MSG_USERAUTH_SUCCESS server response packet.
 pub fn find_successful_login(packet_infos: &[PacketInfo]) -> Option<usize> {
     // Maybe, if the SshSession struct comes to fruition, we can use the Cipher field to tailor
     // this comparison to the current session, instead of comparing it to "all" possibilities (yes,

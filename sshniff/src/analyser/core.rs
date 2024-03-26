@@ -6,6 +6,10 @@ use super::utils;
 use core::panic;
 use rtshark::Packet;
 
+/// Struct containing the core characteristrics of a given SSH session.
+///
+/// Contains markers to optimise packet iteration as well as containers for results and keystroke
+/// data. Passed from function to function during analysis and aggregates data.
 #[derive(Debug)]
 pub struct SshSession<'a> {
     pub stream: u32,
@@ -13,6 +17,8 @@ pub struct SshSession<'a> {
     pub keystroke_size: u32,
     pub prompt_size: i32,
     pub protocols: (String, String),
+    pub src: String,
+    pub dst: String,
     pub hassh_s: String,
     pub hassh_c: String,
     pub logged_in_at: usize,
@@ -20,6 +26,7 @@ pub struct SshSession<'a> {
     pub keystroke_data: Vec<Vec<containers::Keystroke>>,
 }
 
+/// Core analysis function creating the SshSession object with all extracted data.
 pub fn analyse(packet_stream: &[Packet]) -> SshSession {
     log::info!("Starting analysis.");
 
@@ -29,6 +36,8 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
         keystroke_size: 0,
         prompt_size: 0,
         protocols: (String::new(), String::new()),
+        src: String::new(),
+        dst: String::new(),
         hassh_s: String::new(),
         hassh_c: String::new(),
         logged_in_at: 0,
@@ -45,6 +54,9 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
         },
     };
 
+    session.results.push(kex[0]);
+    session.results.push(kex[1]);
+    session.results.push(kex[2]);
     session.new_keys_at = kex[0].index;
     session.keystroke_size = kex[1].length as u32 - 8;
     session.prompt_size = kex[2].length;
@@ -76,6 +88,8 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
     };
     log::debug!("{protocols:?}");
     session.protocols = (String::from(protocols[0].clone()), String::from(protocols[1].clone()));
+    session.src = String::from(format!("{}:{}", protocols[2], protocols[3]));
+    session.dst = String::from(format!("{}:{}", protocols[4], protocols[5]));
 
     let mut size_matrix = utils::create_size_matrix(packet_stream);
     let ordered = utils::order_keystrokes(&mut size_matrix, session.keystroke_size);
@@ -107,10 +121,13 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
     session
 }
 
-// Looks at first 50 packets
-// Finds (21) New Keys packet (Client)
-// Gets lengths of next four packets
-// Returns: New Keys, Keystroke indicator, Login Prompt
+/// Finds the three core characteristrics of the session: New Keys Packet, Keystroke indicator
+/// Packet, Login Prompt Packet.
+///
+/// Looks at first 50 packets,
+/// Finds (21) New Keys packet (Client),
+/// Gets lengths of next four packets,
+/// Returns: New Keys, Keystroke indicator, Login Prompt
 pub fn find_meta_size(packets: &[Packet]) -> Result<[containers::PacketInfo; 3], &'static str> {
     log::info!("Determining keystroke sizings");
 
@@ -191,6 +208,7 @@ pub fn find_meta_size(packets: &[Packet]) -> Result<[containers::PacketInfo; 3],
 // TODO: looks like there's actually a `ssh.kex.hassh` metadata associated with these KEX Init
 // packets, from which we can directly grab the hassh values, as opposed to calculating them. 
 // Not sure if this is a wireshark thing or actually transmitted, so I'm disregarding it for now.
+/// Iterate through KEX and calculate server and client HASSH, returning both.
 pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 2], &'static str> {
     log::info!("Calculating hassh");
 
@@ -280,6 +298,8 @@ pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 2], &'static str> 
     Ok([hassh.ok_or("Failed to get hassh")?, hassh_server.ok_or("Failed to get hassh_server")?])
 }
 
+/// Find the protocols in use by server and client. Protocol means version/type of SSH
+/// client/server, as well as source IP:PORT, destination IP:PORT.
 pub fn find_meta_protocol(packets: &[Packet]) -> Result<[String; 6], &'static str> {
     assert!(packets.len() > 0);
 
@@ -329,13 +349,14 @@ pub fn find_meta_protocol(packets: &[Packet]) -> Result<[String; 6], &'static st
     // Under the assumption that the Client Protocol packet always comes before the Server Protocol
     // packet, the final sip/dip sport/dport will be swapped, since they will be assigned from the
     // Server packet. Hence, we swap the values.
-
-    let tmp_ip = sip;
-    let tmp_port = sport;
-    sip = dip;
-    sport = dport;
-    dip = tmp_ip;
-    dport = tmp_port;
+    if dport > sport {
+        let tmp_ip = sip;
+        let tmp_port = sport;
+        sip = dip;
+        sport = dport;
+        dip = tmp_ip;
+        dport = tmp_port;
+    }
 
     Ok([
         protocol_client.ok_or("Failed to get client protocol")?,
@@ -347,8 +368,11 @@ pub fn find_meta_protocol(packets: &[Packet]) -> Result<[String; 6], &'static st
     ])
 }
 
-// To produce the output, group keystroke sequences together.
-// A sequence is the first keystroke up to the return, including the returned size.
+/// Orders collected keystrokes into sequence groups and relativises their timestamps into a
+/// processable format.
+///
+/// To produce the output, group keystroke sequences together.
+/// A sequence is the first keystroke up to the return, including the returned size.
 pub fn process_keystrokes(keystrokes: Vec<containers::Keystroke>) -> Vec<Vec<containers::Keystroke>> {
     let mut out: Vec<Vec<containers::Keystroke>> = Vec::new();
     let mut itr = 0;
@@ -372,7 +396,7 @@ pub fn process_keystrokes(keystrokes: Vec<containers::Keystroke>) -> Vec<Vec<con
     out
 }
 
-// Transform timestamps into latencies for a given sequence
+/// Transform timestamps into latencies for a given sequence
 fn make_relative(sequence: &mut Vec<containers::Keystroke>) {
     let mut prev_time = sequence[0].timestamp;
 

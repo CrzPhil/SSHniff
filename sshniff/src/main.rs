@@ -49,25 +49,40 @@ struct Args {
     /// Stride between sliding windows, default is 1
     #[arg(short = 's', long, default_value_t = 1, value_parser)]
     stride: i32,
+
+    /// Display output as formatted JSON
+    #[arg(short = 'j', long, action = ArgAction::SetTrue)]
+    json: bool,
 }
 
 fn main() {
     SimpleLogger::new().init().unwrap();
 
     let args = Args::parse();
+    let out;
 
     if let Some(out_dir) = args.output_dir.as_deref() {
         log::info!("Output directory {out_dir}");
         let _ = fs::create_dir_all(out_dir);
+        out = Some(out_dir);
     } else {
-        log::warn!("No output directory specified.")
+        log::warn!("No output directory specified.");
+        out = None;
     }
 
     let streams = analyser::utils::load_file(args.file, args.nstream);
     let key = streams.keys().into_iter().next().unwrap();
 
     let session = analyser::core::analyse(streams.get(key).unwrap());
-    output::print_results(&session);
-    let _ = output::save_keystroke_sequences(&session.keystroke_data, std::path::Path::new(&format!("{}/keystrokes.json", args.output_dir.unwrap()).to_string()));
+
+    // ---- Output ----
+    if args.json {
+        let _ = output::data_as_json(&session);
+    } else {
+        output::print_results(&session);
+        if out.is_some() {
+            let _ = output::save_keystroke_sequences(&session.keystroke_data, std::path::Path::new(&format!("{}/keystrokes.json", args.output_dir.unwrap()).to_string()));
+        }
+    }
 }
 
