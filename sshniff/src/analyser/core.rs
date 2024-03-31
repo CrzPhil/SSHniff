@@ -3,7 +3,7 @@ use crate::ui::output::save_keystroke_sequences;
 use super::scan::{scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data, find_successful_login, scan_for_reverse_session_r_option};
 use super::containers;
 use super::utils;
-use core::panic;
+use core::{panic, fmt};
 use rtshark::Packet;
 
 /// Struct containing the core characteristrics of a given SSH session.
@@ -24,6 +24,13 @@ pub struct SshSession<'a> {
     pub logged_in_at: usize,
     pub results: Vec<containers::PacketInfo<'a>>,
     pub keystroke_data: Vec<Vec<containers::Keystroke>>,
+    pub login_events: Vec<containers::Event>,
+}
+
+impl<'a> fmt::Display for SshSession<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "SshSession '{}' SRC '{}' DST '{}' HASSH_C '{}' HASSH_S '{}' NK '{}' KS '{}' PS '{}' LIA '{}' Protocols '{:?}'", self.stream, self.src, self.dst, self.hassh_c, self.hassh_s, self.new_keys_at, self.keystroke_size, self.prompt_size, self.logged_in_at, self.protocols)
+    }
 }
 
 /// Core analysis function creating the SshSession object with all extracted data.
@@ -43,6 +50,7 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
         logged_in_at: 0,
         results: vec![],
         keystroke_data: vec![],
+        login_events: vec![],
     };
 
     // Get NewKeys, Keystroke Indicator, Login Prompt
@@ -60,7 +68,7 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
     session.new_keys_at = kex[0].index;
     session.keystroke_size = kex[1].length as u32 - 8;
     session.prompt_size = kex[2].length;
-    log::debug!("{session:?}");
+    log::debug!("{session}");
 
     let hassh_server: String;
     let hassh_client: String;
@@ -77,7 +85,7 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
 
     session.hassh_s = hassh_server;
     session.hassh_c = hassh_client;
-    log::debug!("{session:?}");
+    log::debug!("{session}");
 
     let protocols = match find_meta_protocol(packet_stream) {
         Ok(protocols) => protocols,
@@ -104,15 +112,18 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
 
     session.logged_in_at = logged_in_at;
 
-    scan_login_data(&ordered, session.prompt_size, session.new_keys_at, session.logged_in_at);
+    let login_events = scan_login_data(&ordered, session.prompt_size, session.new_keys_at, session.logged_in_at);
+    session.login_events = login_events;
 
-    let _hostkey_acc = match scan_for_host_key_accepts(&ordered, session.logged_in_at) {
+    let hostkey_acc = match scan_for_host_key_accepts(&ordered, session.logged_in_at) {
         Some(pinfo) => pinfo,
         None => {
             log::error!("TODO... hostkey_acc");
             panic!();
         }
     };
+
+    session.results.push(hostkey_acc);
 
     let keystrokes = scan_for_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
     let processed = process_keystrokes(keystrokes);

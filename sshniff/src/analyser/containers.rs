@@ -25,6 +25,10 @@ pub enum KeystrokeType {
 pub enum Event {
     WrongPassword,
     CorrectPassword,
+    OfferRSAKey,
+    OfferECDSAKey,
+    OfferED25519Key,
+    OfferUnknownKey,
     RejectedKey,
     AcceptedKey,
 }

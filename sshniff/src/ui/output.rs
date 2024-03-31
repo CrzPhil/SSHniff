@@ -10,6 +10,8 @@ use ansi_term::Colour;
 pub fn print_results(session: &SshSession) {
     println!("\n\u{250F}\u{2501}\u{2501}\u{2501}\u{2501} Results");
     print_core(session);
+    print_login_events(session);
+    print_result_sequence(session);
     print_keystrokes(session);
 }
 
@@ -17,16 +19,58 @@ pub fn print_results(session: &SshSession) {
 ///
 /// Core consists of Stream number, client/server protocols and HASSH values.
 fn print_core(session: &SshSession) {
-    println!("\u{2503}");
+    // TODO: Add first packet UTC time, etc.
+    // TODO: Make the boxes horizontally aligned?
+    let line = "\u{2500}";
     println!("\u{2503} Stream {}", Colour::Red.paint(session.stream.to_string()));
-    println!("\u{2503} Client      : {:<24} - {}", Colour::Fixed(226).paint(&session.src), Colour::Fixed(226).paint(&session.protocols.0));
-    println!("\u{2503} hassh       : {}", Colour::Fixed(226).paint(&session.hassh_c));
-    println!("\u{2503} Server      : {:<24} - {}", Colour::Fixed(226).paint(&session.dst), Colour::Fixed(226).paint(&session.protocols.1));
-    println!("\u{2503} hasshServer : {}", Colour::Fixed(226).paint(&session.hassh_s));
-    println!("\u{2503} ");
+
+    println!("\u{2503}");
+    print!("\u{2503}\u{256D}");
+    println!("{:\u{2500}^40}\u{256E}", "Client");
+    println!("\u{2503}\u{2502}{:^40}\u{2502}", &session.src);
+    println!("\u{2503}\u{2502}{:^40}\u{2502}", &session.hassh_c);
+    println!("\u{2503}\u{2502}{:^40}\u{2502}", &session.protocols.0);
+    println!("\u{2503}\u{2570}{}\u{256F}", line.repeat(40));
+
+    print!("\u{2503}\u{256D}");
+    println!("{:\u{2500}^40}\u{256E}", "Server");
+    println!("\u{2503}\u{2502}{:^40}\u{2502}", &session.dst);
+    println!("\u{2503}\u{2502}{:^40}\u{2502}", &session.hassh_s);
+    println!("\u{2503}\u{2502}{:^40}\u{2502}", &session.protocols.1);
+    println!("\u{2503}\u{2570}{}\u{256F}", line.repeat(40));
+
+
+//    println!("\u{2503} Client      : {:<24} - {}", Colour::Blue.paint(&session.src), Colour::Fixed(226).paint(&session.protocols.0));
+//    println!("\u{2503} hassh       : {}", Colour::Fixed(226).paint(&session.hassh_c));
+//    println!("\u{2503} Server      : {:<24} - {}", Colour::Red.paint(&session.dst), Colour::Fixed(226).paint(&session.protocols.1));
+//    println!("\u{2503} hasshServer : {}", Colour::Fixed(226).paint(&session.hassh_s));
+    println!("\u{2503}");
+}
+
+fn print_login_events(session: &SshSession) {
+    // TODO: (easy) We need to make the sequence nums of login events available. Either make the func
+    // return them or modify PacketInfo struct to acommodate Events, and return the PacketInfos,
+    // which would make it more uniform with the other scan functions.
+    // OR, much more sensible, specify offered keytype in description and return packetinfos
+    // instead of event enum. same with key accept/reject. 
+    let events = &session.login_events;
+
+    println!("\u{2523}\u{2501} Login Events");
+
+    for event in events {
+        println!("\u{2523} [{}] {:?}", "nan", event); 
+    }
+    println!("\u{2503}");
 }
 
 fn print_result_sequence(session: &SshSession) {
+    let results = &session.results;
+
+    println!("\u{2523}\u{2501} Timeline of Results");
+
+    for pinfo in results {
+        println!("\u{2523} [{}] {}", pinfo.seq, pinfo.description.expect("Result with no description"));
+    }
 
     println!("\u{2503}");
 }

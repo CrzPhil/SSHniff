@@ -309,7 +309,7 @@ pub fn scan_for_agent_forwarding(packet_infos: &[PacketInfo]) {
 /// Happens when pubkey is in known_hosts.
 pub fn scan_for_host_key_accepts<'a>(packet_infos: &[PacketInfo<'a>], logged_in_at: usize) -> Option<PacketInfo<'a>> {
     log::info!("Looking for host key acceptance by Client.");
-    let result: PacketInfo;
+    let mut result: PacketInfo;
 
     for (index, packet_info) in packet_infos.iter().take(100).enumerate() {
         if index == logged_in_at {
@@ -338,6 +338,7 @@ pub fn scan_for_host_key_accepts<'a>(packet_infos: &[PacketInfo<'a>], logged_in_
         // TODO: In packet strider this is simply logged, but I think it's worth keeping track of
         // this packet and actually outputting the fingerprint; maybe make it optional.
         result = packet_infos[index-1];
+        result.description = Some("Server hostkey accepted");
         
         return Some(result); 
     }
@@ -494,14 +495,17 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
             let event = match next_packet.length {
                 492..=500 => {
                     log::debug!("RSA key offered and rejected.");
+                    events.push(Event::OfferRSAKey);
                     Event::RejectedKey
                 },
                 140..=148 => {
                     log::debug!("ED25519 key offered and rejected.");
+                    events.push(Event::OfferED25519Key);
                     Event::RejectedKey
                 },
                 188..=212 => {
                     log::debug!("ECDSA key offered and rejected.");
+                    events.push(Event::OfferECDSAKey);
                     Event:: RejectedKey
                 },
                 _ => {
@@ -535,14 +539,17 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
             let event = match next_packet.length {
                 492..=500 => {
                     log::debug!("RSA key offered and accepted.");
+                    events.push(Event::OfferRSAKey);
                     Event::AcceptedKey
                 },
                 140..=148 => {
                     log::debug!("ED25519 key offered and accepted.");
+                    events.push(Event::OfferED25519Key);
                     Event::AcceptedKey
                 },
                 188..=212 => {
                     log::debug!("ECDSA key offered and accepted.");
+                    events.push(Event::OfferECDSAKey);
                     Event::AcceptedKey 
                 },
                 _ => {
