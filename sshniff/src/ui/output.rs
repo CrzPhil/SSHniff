@@ -70,10 +70,10 @@ fn print_keystrokes(session: &SshSession) {
     for sequence in keystroke_sequences {
         for keystroke in sequence {
             if keystroke.k_type == KeystrokeType::Enter {
-                println!("\u{2523}\u{256E} [{}]  \u{2500} ({:<7})  \u{2500} {:?}", keystroke.seq, keystroke.timestamp, keystroke.k_type);
+                println!("\u{2523}\u{256E} [{}]  \u{2500} ({:>8}) \u{2500} {:?}", keystroke.seq, keystroke.timestamp, keystroke.k_type);
                 println!("\u{2503}\u{2570}\u{2500}\u{257C}[{}]", keystroke.response_size.expect("enter keystroke without response size"));
             } else {
-                println!("\u{2523}  [{}]  \u{2500} ({:<7})  \u{2500} {:?}", keystroke.seq, keystroke.timestamp, keystroke.k_type);
+                println!("\u{2523}  [{}]  \u{2500} ({:>8}) \u{2500} {:?}", keystroke.seq, keystroke.timestamp, keystroke.k_type);
             }
         }
         println!("\u{2523}\u{2501}");

@@ -594,7 +594,6 @@ pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, ne
         ptr += 2;
     }
 
-    log::debug!("{event_packets:?}");
     event_packets
 }
 

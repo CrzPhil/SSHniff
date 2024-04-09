@@ -443,9 +443,9 @@ mod tests {
     #[test]
     fn test_meta_sizes() {
         let meta_size = find_meta_size(&LSAL_STREAM.get(&0).unwrap()).unwrap();
-        let newkeys = meta_size[0];
-        let keysize = meta_size[1];
-        let prompt = meta_size[2];
+        let newkeys = &meta_size[0];
+        let keysize = &meta_size[1];
+        let prompt = &meta_size[2];
 
         // newkeys sequence number
         assert_eq!(1606, newkeys.seq);
@@ -510,7 +510,7 @@ mod tests {
         assert!(login_index.is_some());
 
         // Server login prompt preceding successful login
-        let logged_in_at = ordered[login_index.unwrap()];
+        let logged_in_at = &ordered[login_index.unwrap()];
         assert_eq!(2215, logged_in_at.seq);
     }
 
@@ -573,6 +573,7 @@ mod tests {
 
         // No key was used
         let key_log = scan_login_data(&ordered, -52, 7, 17);
-        assert_eq!(key_log, vec![containers::Event::AcceptedKey, containers::Event::RejectedKey, containers::Event::CorrectPassword]);
+        let events: Vec<String> = vec![key_log[0].description.clone().unwrap(), key_log[1].description.clone().unwrap(), key_log[2].description.clone().unwrap()];
+        assert_eq!(events, vec![containers::Event::AcceptedKey.to_string(), containers::Event::RejectedKey.to_string(), containers::Event::CorrectPassword.to_string()]);
     }
 }
