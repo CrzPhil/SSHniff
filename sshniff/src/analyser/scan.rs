@@ -105,7 +105,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
         // TODO !!! : This 16 is also set in ordered_packets, better to set a const somewhere to ensure
         // parity
         if packet_infos[index].length > keystroke_size && packet_infos[index].length <= (keystroke_size + 16) { 
-            let next_packet = packet_infos[index+1];
+            let next_packet = &packet_infos[index+1];
             // Problem:
             // If the cursor is not at the end of the command and a character is typed/deleted, the
             // returned echo is larger (+8) than keystroke_size. How do we stop it from being
@@ -195,8 +195,8 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
             continue;
         }
 
-        let next_packet = packet_infos[index+1];
-        let next_next_packet = packet_infos[index+2];
+        let next_packet = &packet_infos[index+1];
+        let next_next_packet = &packet_infos[index+2];
 
         // Check for keystroke -> response (echo) -> keystroke 
         // Edge case in OR statement: normal keystroke followed by arrow key (larger size)
@@ -337,8 +337,8 @@ pub fn scan_for_host_key_accepts<'a>(packet_infos: &[PacketInfo<'a>], logged_in_
         // This is the packet containing the server's key fingerprint.
         // TODO: In packet strider this is simply logged, but I think it's worth keeping track of
         // this packet and actually outputting the fingerprint; maybe make it optional.
-        result = packet_infos[index-1];
-        result.description = Some("Server hostkey accepted");
+        result = packet_infos[index-1].clone();
+        result.description = Some("Server hostkey accepted".to_string());
         
         return Some(result); 
     }
@@ -456,7 +456,7 @@ pub fn _scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: 
 /// Scans for login-related findings, such as key offers, key accepts/rejects, password attempts.
 ///
 /// Uses research findings of packet length ranges to classify key types (RSA, ED25519, ECDSA).
-pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_index: usize, logged_in_at: usize) -> Vec<Event> {
+pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, new_keys_index: usize, logged_in_at: usize) -> Vec<PacketInfo<'a>> {
     let offset = new_keys_index;
     // We only care about the slice of packets between the first login prompt and up to the
     // successful logon.
@@ -470,13 +470,15 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
                                 panic!("Initial login prompt not found.");
                             }).index;
 
-    let mut events: Vec<Event> = Vec::new();
+    //let mut events: Vec<Event> = Vec::new();
+    let mut event_packets: Vec<PacketInfo> = Vec::new();
 
     let mut ptr: usize = initial_prompt;
 
     let mut curr_packet: &PacketInfo = &packet_infos[ptr];
     let mut next_packet: &PacketInfo;
     let mut next_next_packet: &PacketInfo;
+    let mut event_packet: PacketInfo;
     while (ptr + 2)  < packet_infos.len() && curr_packet.index != logged_in_at {
         curr_packet = &packet_infos[ptr];
         next_packet = &packet_infos[ptr+1];
@@ -495,17 +497,26 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
             let event = match next_packet.length {
                 492..=500 => {
                     log::debug!("RSA key offered and rejected.");
-                    events.push(Event::OfferRSAKey);
+                    //events.push(Event::OfferRSAKey);
+                    event_packet = next_packet.clone();
+                    event_packet.description = Some(Event::OfferRSAKey.to_string());
+                    event_packets.push(event_packet);
                     Event::RejectedKey
                 },
                 140..=148 => {
                     log::debug!("ED25519 key offered and rejected.");
-                    events.push(Event::OfferED25519Key);
+                    //events.push(Event::OfferED25519Key);
+                    event_packet = next_packet.clone();
+                    event_packet.description = Some(Event::OfferED25519Key.to_string());
+                    event_packets.push(event_packet);
                     Event::RejectedKey
                 },
                 188..=212 => {
                     log::debug!("ECDSA key offered and rejected.");
-                    events.push(Event::OfferECDSAKey);
+                    //events.push(Event::OfferECDSAKey);
+                    event_packet = next_packet.clone();
+                    event_packet.description = Some(Event::OfferECDSAKey.to_string());
+                    event_packets.push(event_packet);
                     Event:: RejectedKey
                 },
                 _ => {
@@ -514,14 +525,18 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
                 },
             };
 
-            events.push(event);
+            event_packet = next_next_packet.clone();
+            event_packet.description = Some(event.to_string());
+            event_packets.push(event_packet);
         } 
         // This MUST be a successful login. 
         // if ptr=prompt_size, then it must have been via a valid password:
         // prompt_size -> <password> -> SSH2_MSG_USERAUTH_SUCCESS
         else if next_next_packet.index == logged_in_at {
             if curr_packet.length == prompt_size {
-                events.push(Event::CorrectPassword);
+                event_packet = next_next_packet.clone();
+                event_packet.description = Some(Event::CorrectPassword.to_string());
+                event_packets.push(event_packet);
                 break;
             }
         }
@@ -539,28 +554,34 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
             let event = match next_packet.length {
                 492..=500 => {
                     log::debug!("RSA key offered and accepted.");
-                    events.push(Event::OfferRSAKey);
+                    event_packet = next_packet.clone();
+                    event_packet.description = Some(Event::OfferRSAKey.to_string());
+                    event_packets.push(event_packet);
                     Event::AcceptedKey
                 },
                 140..=148 => {
                     log::debug!("ED25519 key offered and accepted.");
-                    events.push(Event::OfferED25519Key);
+                    event_packet = next_packet.clone();
+                    event_packet.description = Some(Event::OfferED25519Key.to_string());
+                    event_packets.push(event_packet);
                     Event::AcceptedKey
                 },
                 188..=212 => {
                     log::debug!("ECDSA key offered and accepted.");
-                    events.push(Event::OfferECDSAKey);
+                    event_packet = next_packet.clone();
+                    event_packet.description = Some(Event::OfferECDSAKey.to_string());
+                    event_packets.push(event_packet);
                     Event::AcceptedKey 
                 },
                 _ => {
                     log::debug!("Correct password detected.");
-                    println!("ptr: {ptr}");
-                    println!("seq: {}", curr_packet.seq);
                     Event::CorrectPassword
                 },
             };
 
-            events.push(event);
+            event_packet = next_next_packet.clone();
+            event_packet.description = Some(event.to_string());
+            event_packets.push(event_packet);
 
             // The next packet after the accept key offer may be a password, or another key offer.
             // (at curr_packet + 4)
@@ -573,8 +594,8 @@ pub fn scan_login_data(packet_infos: &[PacketInfo], prompt_size: i32, new_keys_i
         ptr += 2;
     }
 
-    log::debug!("{events:?}");
-    events
+    log::debug!("{event_packets:?}");
+    event_packets
 }
 
 /// Looks for signature SSH2_MSG_USERAUTH_SUCCESS server response packet.

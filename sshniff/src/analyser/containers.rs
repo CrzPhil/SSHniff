@@ -1,5 +1,6 @@
 use rtshark::Packet;
 use serde::Serialize;
+use std::fmt;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Keystroke {
@@ -33,17 +34,23 @@ pub enum Event {
     AcceptedKey,
 }
 
-#[derive(Clone, Copy, Debug)]
+impl fmt::Display for Event {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct PacketInfo<'a> {
     pub index: usize,
     pub seq: i64,
     pub length: i32,    // We use i32 to allow for negative values, indicating server packets
     pub packet: &'a Packet,
-    pub description: Option<&'a str>,   // For later printing (?)
+    pub description: Option<String>,   // For later printing (?)
 }
 
 impl<'a> PacketInfo<'a> {
-    pub fn new(packet: &'a Packet, index: usize, description: Option<&'a str>) -> Self {
+    pub fn new(packet: &'a Packet, index: usize, description: Option<String>) -> Self {
         let tcp_layer = packet.layer_name("tcp").unwrap();
         let seq = tcp_layer.metadata("tcp.seq").unwrap().value().parse::<i64>().unwrap();
         let mut length = tcp_layer.metadata("tcp.len").unwrap().value().parse::<i32>().unwrap();
