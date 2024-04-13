@@ -80,6 +80,10 @@ pub fn is_server_packet(packet: &Packet) -> bool {
         tcp_layer.metadata("tcp.dstport").unwrap().value() > tcp_layer.metadata("tcp.srcport").unwrap().value()
 }
 
+/// Transform an rtshark packet slice into a vector of PacketInfo objects.
+///
+/// Saves us the constant unwrapping of tcp and ssh layers / metadata to access the info we want.
+/// STC packets' lengths are negative, indicating the Server -> Client direction.
 pub fn create_size_matrix(packets: &[Packet]) -> Vec<PacketInfo> {
     log::info!("Creating PacketInfo matrix.");
     packets.iter().enumerate().map(|(index, packet)| { 
@@ -99,6 +103,13 @@ pub fn create_size_matrix(packets: &[Packet]) -> Vec<PacketInfo> {
     }).collect()
 }
 
+/// Orders PacketInfos into their inferred order of being sent. 
+///
+/// To do so, for every keystroke-length packet, we look ahead a few packets for a server echo,
+/// which may have been sent out-of-order. We add both to the ordered vector. 
+/// Rinse and repeat until all packets are ordered.
+/// There's some nuance to this as server echoes sometimes differ in size. 
+/// We account for that by checking up to keystroke_size + 16 as possible responses.
 pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_size: u32) -> Vec<PacketInfo<'a>> {
     log::info!("Ordering keystrokes.");
     let mut ordered_packets: Vec<PacketInfo<'a>> = Vec::new();
@@ -142,6 +153,7 @@ pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_si
     ordered_packets
 }
 
+/// Unpacks an rtshark Packet to check for- and return the ssh.message_code, if it exists.
 pub fn get_message_code(packet: &Packet) -> Option<u32> {
     let ssh_layer = packet.layer_name("ssh").expect("No ssh layer found when seeking message code");
 
