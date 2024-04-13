@@ -1,0 +1,105 @@
+{
+    "commands": [
+      {
+        "category": "basics",
+        "patterns": [
+          "ls -l",
+          "cd",
+          "pwd",
+          "touch ",
+          "cp file1 file2",
+          "mv file1 file2",
+          "rm file",
+          "mkdir directory",
+          "rmdir directory",
+          "cat file",
+          "less file",
+          "nano file",
+          "vim file",
+          "chmod +x file",
+          "chown user:group file",
+          "sudo command",
+          "su - user",
+          "whoami",
+          "man command",
+          "echo 'text'",
+      "head ",
+      "tail -f ",
+          "exit"
+        ]
+      },
+      {
+        "category": "system",
+        "patterns": [
+          "ps -aux",
+          "top",
+          "htop",
+          "kill pid",
+          "df -h",
+          "du -h directory",
+          "uname -a",
+          "uptime",
+          "free -m",
+          "vmstat",
+          "iostat",
+          "systemctl status service",
+          "service name start"
+        ]
+      },
+      {
+        "category": "network",
+        "patterns": [
+          "ping host",
+          "netstat -tuln",
+          "ss -tuln",
+          "curl https://example.com",
+          "wget https://example.com",
+          "scp file user@host:path",
+          "ssh user@host",
+          "iptables -L",
+          "ufw enable",
+          "ip addr"
+        ]
+      },
+      {
+        "category": "package",
+        "patterns": [
+          "apt-get update",
+          "apt-get install package",
+          "dpkg -i package.deb",
+          "yum install package",
+          "dnf install package",
+          "pacman -Syu",
+          "pacman -S package"
+        ]
+      },
+      {
+        "category": "other",
+        "patterns": [
+          "grep -i 'pattern' file",
+          "awk '/pattern/ {action}' file",
+          "sed 's/find/replace/' file",
+          "sort file",
+          "uniq file",
+          "tar -czvf archive.tar.gz directory",
+          "gzip file",
+          "unzip archive.zip",
+          "zip archive.zip file",
+          "dd if=/dev/zero of=file bs=1M count=10",
+          "python3 script.py",
+          "pip3 install package"
+        ]
+      }
+    ],
+    "commonFlags": [
+      "--help",
+      "-v",
+      "--version"
+    ],
+    "commonPathStarts": [
+      "./",
+      "../",
+      "/"
+    ]
+  }
+  
