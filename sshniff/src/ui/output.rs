@@ -18,11 +18,9 @@ pub fn print_results(session: &SshSession) {
 ///
 /// Core consists of Stream number, client/server protocols and HASSH values.
 fn print_core(session: &SshSession) {
-    // TODO: Add first packet UTC time, etc.
-    // TODO: Make the boxes horizontally aligned?
     let line = "\u{2500}";
     println!("\u{2503} Stream {}", Colour::Red.paint(session.stream.to_string()));
-    println!("\u{2503} Timeframe UTC: {} - {}", session.start_utc, session.end_utc);
+    println!("\u{2503} Duration (UTC): {} - {}", session.start_utc, session.end_utc);
 
     // Stacked:
     
@@ -42,29 +40,32 @@ fn print_core(session: &SshSession) {
 //    println!("\u{2503}\u{2570}{}\u{256F}", line.repeat(40));
 
     // Horizontal:
-
-    // === Row 1 ===
+   // === Row 1 ===
     print!("\u{2503}{}", Colour::Green.paint("\u{256D}"));
     print!("{}", Colour::Green.paint(format!("{:\u{2500}^40}\u{256E}", "Client")));
     print!("      ");
-    print!("\u{256D}");
-    println!("{:\u{2500}^40}\u{256E}", "Server");
+    print!("{}", Colour::Cyan.paint("\u{256D}"));
+    println!("{}", Colour::Cyan.paint(format!("{:\u{2500}^40}\u{256E}", "Server")));
+
     // === Row 2 === 
     print!("\u{2503}{}", Colour::Green.paint(format!("\u{2502}{:^40}\u{2502}", &session.src)));
     print!("      ");
-    println!("\u{2502}{:^40}\u{2502}", &session.dst);
+    println!("{}", Colour::Cyan.paint(format!("\u{2502}{:^40}\u{2502}", &session.dst)));
+
     // === Row 3 ===
     print!("\u{2503}{}", Colour::Green.paint(format!("\u{2502}{:^40}\u{2502}", &session.hassh_c)));
-    print!("{}", Colour::Green.paint("----->"));
-    println!("\u{2502}{:^40}\u{2502}", &session.hassh_s);
+    print!("{}", Colour::Yellow.paint("----->"));
+    println!("{}", Colour::Cyan.paint(format!("\u{2502}{:^40}\u{2502}", &session.hassh_s)));
+
     // === Row 4 ===
     print!("\u{2503}{}", Colour::Green.paint(format!("\u{2502}{:^40}\u{2502}", &session.protocols.0)));
     print!("      ");
-    println!("\u{2502}{:^40}\u{2502}", &session.protocols.1);
+    println!("{}", Colour::Cyan.paint(format!("\u{2502}{:^40}\u{2502}", &session.protocols.1)));
+
     // === Row 5 ===
     print!("\u{2503}{}", Colour::Green.paint(format!("\u{2570}{}\u{256F}", line.repeat(40))));
     print!("      ");
-    println!("\u{2570}{}\u{256F}", line.repeat(40));
+    println!("{}", Colour::Cyan.paint(format!("\u{2570}{}\u{256F}", line.repeat(40))));
 
 //    println!("\u{2503} Client      : {:<24} - {}", Colour::Blue.paint(&session.src), Colour::Fixed(226).paint(&session.protocols.0));
 //    println!("\u{2503} hassh       : {}", Colour::Fixed(226).paint(&session.hassh_c));
@@ -76,7 +77,7 @@ fn print_core(session: &SshSession) {
 fn print_result_sequence(session: &SshSession) {
     let results = &session.results;
 
-    println!("\u{2523}\u{2501} Timeline of Results");
+    println!("\u{2523}\u{2501} Timeline of Events");
 
     for pinfo in results {
         println!("\u{2523} [{}] {}", pinfo.seq, pinfo.description.clone().expect("Result with no description"));
@@ -91,7 +92,7 @@ fn print_result_sequence(session: &SshSession) {
 /// investigate the capture themselves. 
 fn print_keystrokes(session: &SshSession) {
     let keystroke_sequences = &session.keystroke_data;
-
+    println!("\u{2523}\u{2501} Keystroke Sequences");
     println!("\u{2523}\u{2501} {} \u{2500} {} \u{2500} {}", Colour::Red.paint("tcp.seq"), Colour::Red.paint("Latency μs"), Colour::Red.paint("Type"));
 
     for sequence in keystroke_sequences {
