@@ -29,6 +29,39 @@
 - [ ] More test cases with serialised packet data from PCAPs 
 - [ ] Coverage test (?) 
 
+## Commands & Signatures
+
+I realised that once you run an arbitrary command, there seems to be a packet sandwich.  
+What I mean is that once you send Return, of keystroke\_len, the response consists of the standard-length response for a Return keystroke, i.e. 102 -> 118, followed by the returned data of the command, and ended by a same-sized packet for all commands, which I think indicates the user/cli prompt, i.e. 174 in length.  
+
+I determined this by running `sleep 3`, which produces no output. The sequence is:
+
+```bash
+102 (Client Return)
+118 (Server, immediately)
+174 (Server, after three seconds)
+```
+
+When running commands that do produce output, like `id`:
+
+```bash
+102 (Client Return)
+118 (Server)
+262 (Server)
+174 (Server)
+```
+
+`id` produces relatively small output, so the sandwich only consists of a single 262-sized packet. Interestingly, running `cat /etc/passwd` also seems to package the response into a single packet, with a larger size. Something like `mount`, though, produces multiple packets:
+
+```bash
+102 (Client Return)
+118 (Server)
+782 (Server)
+710 (Server)
+1026 (Server)
+174 (Server)
+```
+
 ## Ciphers
 
 The cipher struct is defined as follows: 

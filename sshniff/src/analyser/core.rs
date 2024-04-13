@@ -24,7 +24,6 @@ pub struct SshSession<'a> {
     pub logged_in_at: usize,
     pub results: Vec<containers::PacketInfo<'a>>,
     pub keystroke_data: Vec<Vec<containers::Keystroke>>,
-    pub login_events: Vec<containers::Event>,
 }
 
 impl<'a> fmt::Display for SshSession<'a> {
@@ -50,7 +49,6 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
         logged_in_at: 0,
         results: vec![],
         keystroke_data: vec![],
-        login_events: vec![],
     };
 
     // Get NewKeys, Keystroke Indicator, Login Prompt
@@ -62,9 +60,9 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
         },
     };
 
-    session.results.push(kex[0]);
-    session.results.push(kex[1]);
-    session.results.push(kex[2]);
+    session.results.push(kex[0].clone());
+    session.results.push(kex[1].clone());
+    session.results.push(kex[2].clone());
     session.new_keys_at = kex[0].index;
     session.keystroke_size = kex[1].length as u32 - 8;
     session.prompt_size = kex[2].length;
@@ -113,7 +111,7 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
     session.logged_in_at = logged_in_at;
 
     let login_events = scan_login_data(&ordered, session.prompt_size, session.new_keys_at, session.logged_in_at);
-    session.login_events = login_events;
+    session.results.extend(login_events);
 
     let hostkey_acc = match scan_for_host_key_accepts(&ordered, session.logged_in_at) {
         Some(pinfo) => pinfo,
@@ -201,9 +199,9 @@ pub fn find_meta_size(packets: &[Packet]) -> Result<[containers::PacketInfo; 3],
             // i+1: Keystroke indicator (length - 8 = keystroke_size)
             // i+4: First login prompt (size indicator)
             let out: [containers::PacketInfo; 3] = [
-                containers::PacketInfo::new(&packet, i, Some("New Keys (21)")),
-                containers::PacketInfo::new(packets.get(i+1).unwrap(), i+1, Some("Keystroke Size Indicator")),
-                containers::PacketInfo::new(packets.get(i+4).unwrap(), i+4, Some("First login prompt")),
+                containers::PacketInfo::new(&packet, i, Some("New Keys (21)".to_string())),
+                containers::PacketInfo::new(packets.get(i+1).unwrap(), i+1, Some("Keystroke Size Indicator".to_string())),
+                containers::PacketInfo::new(packets.get(i+4).unwrap(), i+4, Some("First login prompt".to_string())),
             ];
 
             return Ok(out);
@@ -445,9 +443,9 @@ mod tests {
     #[test]
     fn test_meta_sizes() {
         let meta_size = find_meta_size(&LSAL_STREAM.get(&0).unwrap()).unwrap();
-        let newkeys = meta_size[0];
-        let keysize = meta_size[1];
-        let prompt = meta_size[2];
+        let newkeys = &meta_size[0];
+        let keysize = &meta_size[1];
+        let prompt = &meta_size[2];
 
         // newkeys sequence number
         assert_eq!(1606, newkeys.seq);
@@ -512,7 +510,7 @@ mod tests {
         assert!(login_index.is_some());
 
         // Server login prompt preceding successful login
-        let logged_in_at = ordered[login_index.unwrap()];
+        let logged_in_at = &ordered[login_index.unwrap()];
         assert_eq!(2215, logged_in_at.seq);
     }
 
@@ -575,6 +573,7 @@ mod tests {
 
         // No key was used
         let key_log = scan_login_data(&ordered, -52, 7, 17);
-        assert_eq!(key_log, vec![containers::Event::AcceptedKey, containers::Event::RejectedKey, containers::Event::CorrectPassword]);
+        let events: Vec<String> = vec![key_log[0].description.clone().unwrap(), key_log[1].description.clone().unwrap(), key_log[2].description.clone().unwrap()];
+        assert_eq!(events, vec![containers::Event::AcceptedKey.to_string(), containers::Event::RejectedKey.to_string(), containers::Event::CorrectPassword.to_string()]);
     }
 }
