@@ -2,7 +2,7 @@ use crate::analyser::core::SshSession;
 use crate::analyser::containers::{Keystroke, KeystrokeType};
 use serde::Serialize;
 use std::fs::File;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::Path;
 use ansi_term::Colour;
 
@@ -125,15 +125,22 @@ pub fn save_keystroke_sequences(sequences: &Vec<Vec<Keystroke>>, file_path: &Pat
     Ok(())
 }
 
-/// Prints all data as JSON, which can be directly piped to jq. 
+/// Returns all data as JSON, which can be directly piped to jq, if printed. 
 ///
 /// Triggered by the `--json` flag.
-pub fn data_as_json(session: &SshSession) -> Result<(), serde_json::Error> {
+pub fn data_as_json(session: &SshSession) -> Result<String, serde_json::Error> {
     // Serialize the data to JSON string
-
-    todo!()
+    let serialized = serde_json::to_string(session)?;
+    Ok(serialized)
 }
 
+/// Saves json data to a given file
+pub fn data_to_file(data: String, file_path: &Path) -> Result<(), io::Error> {
+    let mut file = File::create(file_path)?;
+    file.write_all(data.as_bytes())?;
+
+    Ok(())
+}
 
 pub fn print_banner() {
     println!(r"                                                          ,._ ");

@@ -1,5 +1,5 @@
 use rtshark::Packet;
-use serde::Serialize;
+use serde::{ser::SerializeStruct, Serialize};
 use std::fmt;
 
 #[derive(Clone, Debug, Serialize)]
@@ -70,6 +70,18 @@ impl<'a> PacketInfo<'a> {
             packet,
             description,
         }
+    }
+}
+
+impl Serialize for PacketInfo<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer {
+        let mut state = serializer.serialize_struct("PacketInfo", 3)?;
+        state.serialize_field("tcp.seq", &self.index)?;
+        state.serialize_field("tcp.len", &self.length)?;
+        state.serialize_field("description", &self.description.clone().unwrap_or("".to_string()))?;
+        state.end()
     }
 }
 

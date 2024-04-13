@@ -5,12 +5,13 @@ use super::containers;
 use super::utils;
 use core::{panic, fmt};
 use rtshark::Packet;
+use serde::Serialize;
 
 /// Struct containing the core characteristrics of a given SSH session.
 ///
 /// Contains markers to optimise packet iteration as well as containers for results and keystroke
 /// data. Passed from function to function during analysis and aggregates data.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct SshSession<'a> {
     pub stream: u32,
     pub new_keys_at: usize,

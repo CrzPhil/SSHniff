@@ -2,7 +2,7 @@ mod analyser;
 mod ui;
 
 use clap::{Parser, ArgAction};
-use simple_logger::SimpleLogger;
+use simple_logger::{init_with_env, SimpleLogger};
 use ui::output;
 use std::fs;
 
@@ -56,7 +56,7 @@ struct Args {
 }
 
 fn main() {
-    SimpleLogger::new().init().unwrap();
+    simple_logger::init_with_env().unwrap();
 
     let args = Args::parse();
     let out;
@@ -77,7 +77,12 @@ fn main() {
 
     // ---- Output ----
     if args.json {
-        let _ = output::data_as_json(&session);
+        let json = output::data_as_json(&session);
+        if out.is_some() {
+            let _ = output::data_to_file(json.unwrap(), std::path::Path::new(&format!("{}/ssh_session.json", args.output_dir.unwrap()).to_string()));
+        } else {
+            println!("{}", json.unwrap());
+        }
     } else {
         output::print_results(&session);
         if out.is_some() {
