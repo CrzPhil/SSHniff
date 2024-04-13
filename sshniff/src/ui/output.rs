@@ -22,6 +22,7 @@ fn print_core(session: &SshSession) {
     // TODO: Make the boxes horizontally aligned?
     let line = "\u{2500}";
     println!("\u{2503} Stream {}", Colour::Red.paint(session.stream.to_string()));
+    println!("\u{2503} Timeframe UTC: {} - {}", session.start_utc, session.end_utc);
 
     // Stacked:
     

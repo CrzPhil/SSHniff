@@ -4,6 +4,7 @@ use super::utils;
 use core::{panic, fmt};
 use rtshark::Packet;
 use serde::Serialize;
+use chrono::{DateTime, TimeZone, Utc};
 
 /// Struct containing the core characteristrics of a given SSH session.
 ///
@@ -21,6 +22,8 @@ pub struct SshSession<'a> {
     pub hassh_s: String,
     pub hassh_c: String,
     pub logged_in_at: usize,
+    pub start_utc: String,
+    pub end_utc: String,
     pub results: Vec<containers::PacketInfo<'a>>,
     pub keystroke_data: Vec<Vec<containers::Keystroke>>,
 }
@@ -48,9 +51,16 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
         hassh_s: String::new(),
         hassh_c: String::new(),
         logged_in_at: 0,
+        start_utc: String::new(),
+        end_utc: String::new(),
         results: vec![],
         keystroke_data: vec![],
     };
+
+    // Get start and end
+    let timeframe = get_start_and_end(packet_stream);
+    session.start_utc = timeframe.0;
+    session.end_utc = timeframe.1;
 
     // Get NewKeys, Keystroke Indicator, Login Prompt
     let kex = match find_meta_size(packet_stream) {
@@ -129,6 +139,26 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
     session.keystroke_data = processed;
 
     session
+}
+
+/// Gets the start and end datetime (UTC) of a packet stream as a tuple of Strings.
+pub fn get_start_and_end(packets: &[Packet]) -> (String, String) {
+    log::info!("Getting start and end time of session.");
+
+    let start = packets.first();
+    let last = packets.last();
+
+    // I mean.. they have to be, right?
+    assert!(start.is_some());
+    assert!(last.is_some());
+
+    let start_timestamp = start.unwrap().timestamp_micros().unwrap();
+    let end_timestamp = last.unwrap().timestamp_micros().unwrap();
+
+    let start_datetime: DateTime<Utc> = Utc.timestamp_micros(start_timestamp).unwrap();
+    let end_datetime: DateTime<Utc> = Utc.timestamp_micros(end_timestamp).unwrap();
+
+    (start_datetime.format("%Y-%m-%d %H:%M:%S").to_string(), end_datetime.format("%Y-%m-%d %H:%M:%S").to_string())
 }
 
 /// Finds the three core characteristrics of the session: New Keys Packet, Keystroke indicator
