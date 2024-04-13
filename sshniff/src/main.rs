@@ -26,18 +26,6 @@ struct Args {
     #[arg(short = 'k', long, action = ArgAction::SetTrue)]
     keystrokes: bool,
 
-    /// Plot data movement and keystrokes
-    #[arg(short = 'p', long, action = ArgAction::SetTrue)]
-    predict_plot: bool,
-
-    /// Narrow down/zoom the analysis and plotting to only packets "x-y"
-    #[arg(short = 'z', long, default_value_t = String::from("0"), value_parser)]
-    zoom: String,
-
-    /// Perform analysis on SSH direction: "forward", "reverse" OR "both"
-    #[arg(short = 'd', long, default_value_t = String::from("both"), value_parser)]
-    direction: String,
-
     /// Directory to output plots
     #[arg(short = 'o', long, value_parser)]
     output_dir: Option<String>,

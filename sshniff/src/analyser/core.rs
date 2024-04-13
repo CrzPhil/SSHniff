@@ -1,5 +1,3 @@
-use crate::ui::output::save_keystroke_sequences;
-
 use super::scan::{scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data, find_successful_login, scan_for_reverse_session_r_option};
 use super::containers;
 use super::utils;
@@ -34,6 +32,8 @@ impl<'a> fmt::Display for SshSession<'a> {
 }
 
 /// Core analysis function creating the SshSession object with all extracted data.
+///
+/// Operates on a single packet stream; will have to be called iteratively for multiple streams.
 pub fn analyse(packet_stream: &[Packet]) -> SshSession {
     log::info!("Starting analysis.");
 
@@ -574,7 +574,7 @@ mod tests {
 
         // No key was used
         let key_log = scan_login_data(&ordered, -52, 7, 17);
-        let events: Vec<String> = vec![key_log[0].description.clone().unwrap(), key_log[1].description.clone().unwrap(), key_log[2].description.clone().unwrap()];
-        assert_eq!(events, vec![containers::Event::AcceptedKey.to_string(), containers::Event::RejectedKey.to_string(), containers::Event::CorrectPassword.to_string()]);
+        let events: Vec<String> = vec![key_log[0].description.clone().unwrap(), key_log[1].description.clone().unwrap(), key_log[2].description.clone().unwrap(), key_log[3].description.clone().unwrap(), key_log[4].description.clone().unwrap()];
+        assert_eq!(events, vec![containers::Event::OfferRSAKey.to_string(), containers::Event::AcceptedKey.to_string(), containers::Event::OfferED25519Key.to_string(), containers::Event::RejectedKey.to_string(), containers::Event::CorrectPassword.to_string()]);
     }
 }

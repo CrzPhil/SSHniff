@@ -7,6 +7,10 @@ use hex;
 
 // If nstreams is not set, we need to iterate through the file and return all the streams to
 // iterate through.
+/// Iterates through rtshark packets, checking for streams and adding them to a hashmap.
+///
+/// Packets are added per-stream into the map. If the nstreams argument is set, only add that
+/// stream to the map for further processing.
 pub fn get_streams(rtshark: &mut RTShark, stream: i32) -> HashMap<u32, Vec<Packet>> {
     log::info!("Collecting streams.");
     let mut stream_map: HashMap<u32, Vec<Packet>> = HashMap::new();
@@ -34,6 +38,12 @@ pub fn get_streams(rtshark: &mut RTShark, stream: i32) -> HashMap<u32, Vec<Packe
     stream_map
 }
 
+/// Loads PCAP/PCAPNG file via rtshark.
+///
+/// Display filters used (adapted from Packet Strider):
+/// `ssh && !tcp.analysis.spurious_retransmission && !tcp.analysis.retransmission &&
+/// !tcp.analysis.fast_retransmission`
+/// Calls get_streams() after loading packets.
 pub fn load_file(filepath: String, stream: i32) -> HashMap<u32, Vec<Packet>> {
     log::info!("Loading capture file.");
 
