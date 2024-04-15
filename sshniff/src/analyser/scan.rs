@@ -460,15 +460,20 @@ pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, ne
     let offset = new_keys_index;
     // We only care about the slice of packets between the first login prompt and up to the
     // successful logon.
-    let initial_prompt = packet_infos
-                            .iter()
-                            .skip(offset)
-                            .take(logged_in_at - offset)
-                            .find(|packet_info| packet_info.length == prompt_size)
-                            .unwrap_or_else(|| {
-                                log::error!("Failed to find initial login prompt.");
-                                panic!("Initial login prompt not found.");
-                            }).index;
+
+    // This below caused false-positives when there exist prompt-sized packets between New Keys and
+    // New Keys + 4 (first prompt). I don't think these are real prompts, and it's just "unlucky"
+    // padding coincidences, so I will hardcode prompt 1. at new keys + 4. 
+//    let initial_prompt = packet_infos
+//                            .iter()
+//                            .skip(offset)
+//                            .take(logged_in_at - offset)
+//                            .find(|packet_info| packet_info.length == prompt_size)
+//                            .unwrap_or_else(|| {
+//                                log::error!("Failed to find initial login prompt.");
+//                                panic!("Initial login prompt not found.");
+//                            }).index;
+    let initial_prompt = packet_infos[new_keys_index+4].index;
 
     //let mut events: Vec<Event> = Vec::new();
     let mut event_packets: Vec<PacketInfo> = Vec::new();

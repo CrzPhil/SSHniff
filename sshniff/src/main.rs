@@ -22,7 +22,7 @@ struct Args {
     #[arg(short = 'm', long, action = ArgAction::SetTrue)]
     metaonly: bool,
 
-    /// Perform keystroke prediction
+    /// Only output keystroke data
     #[arg(short = 'k', long, action = ArgAction::SetTrue)]
     keystrokes: bool,
 
