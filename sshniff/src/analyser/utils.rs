@@ -89,7 +89,7 @@ pub fn create_size_matrix(packets: &[Packet]) -> Vec<PacketInfo> {
     packets.iter().enumerate().map(|(index, packet)| { 
         let tcp_layer = packet.layer_name("tcp").unwrap();
         let length: i32 = tcp_layer.metadata("tcp.len").unwrap().value().parse().unwrap();
-        let is_server_packet = tcp_layer.metadata("tcp.dstport").unwrap().value() > tcp_layer.metadata("tcp.srcport").unwrap().value();
+        let is_server_packet = tcp_layer.metadata("tcp.dstport").unwrap().value().parse::<u32>().unwrap() > tcp_layer.metadata("tcp.srcport").unwrap().value().parse::<u32>().unwrap();
         let adjusted_length = if is_server_packet { -length } else { length };
 
         let seq = tcp_layer.metadata("tcp.seq").unwrap().value().parse().unwrap();
