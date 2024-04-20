@@ -2,6 +2,7 @@ mod analyser;
 mod ui;
 
 use clap::{Parser, ArgAction};
+use log::LevelFilter;
 use simple_logger::{init_with_env, SimpleLogger};
 use ui::output;
 use std::fs;
@@ -41,12 +42,20 @@ struct Args {
     /// Display output as formatted JSON
     #[arg(short = 'j', long, action = ArgAction::SetTrue)]
     json: bool,
+
+    /// Set the debug level (Off, Error, Warn, Info, Debug, Trace)
+    #[arg(short = 'd', long, default_value_t = LevelFilter::Off, value_parser = parse_level_filter)]
+    debug: LevelFilter, 
+}
+
+fn parse_level_filter(s: &str) -> Result<LevelFilter, String> {
+    s.parse::<LevelFilter>().map_err(|_| format!("Invalid log level: {}", s))
 }
 
 fn main() {
-    simple_logger::init_with_env().unwrap();
-
     let args = Args::parse();
+    SimpleLogger::new().with_level(args.debug).init().unwrap();
+
     let out;
 
     if let Some(out_dir) = args.output_dir.as_deref() {
