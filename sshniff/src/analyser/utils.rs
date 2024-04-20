@@ -1,3 +1,4 @@
+//! Contains utilities and helper functions that aid in Packet processing.
 use rtshark::{Packet, RTShark};
 use core::panic;
 use std::{collections::HashMap, usize};
@@ -5,8 +6,11 @@ use md5::{Digest, Md5};
 use super::containers::PacketInfo;
 use hex;
 
-// If nstreams is not set, we need to iterate through the file and return all the streams to
-// iterate through.
+/// Constant upper boundary for what might be considered a keystroke.
+/// Important to keep track of this because it pops up in comparison operations 
+/// and needs to be uniform, especially when sorting the initial stream.
+pub const KEYSTROKE_UPPER_BOUND: i32 = 16;
+
 /// Iterates through rtshark packets, checking for streams and adding them to a hashmap.
 ///
 /// Packets are added per-stream into the map. If the nstreams argument is set, only add that
@@ -75,9 +79,11 @@ pub fn load_file(filepath: String, stream: i32) -> HashMap<u32, Vec<Packet>> {
     streams
 }
 
+/// Checks is a [Packet] is a server packet.
+/// Helper function that does some onion peeling on [Packet]s.
 pub fn is_server_packet(packet: &Packet) -> bool {
         let tcp_layer = packet.layer_name("tcp").unwrap();
-        tcp_layer.metadata("tcp.dstport").unwrap().value() > tcp_layer.metadata("tcp.srcport").unwrap().value()
+        tcp_layer.metadata("tcp.dstport").unwrap().value().parse::<u32>().unwrap() > tcp_layer.metadata("tcp.srcport").unwrap().value().parse::<u32>().unwrap()
 }
 
 /// Transform an rtshark packet slice into a vector of PacketInfo objects.
@@ -89,7 +95,7 @@ pub fn create_size_matrix(packets: &[Packet]) -> Vec<PacketInfo> {
     packets.iter().enumerate().map(|(index, packet)| { 
         let tcp_layer = packet.layer_name("tcp").unwrap();
         let length: i32 = tcp_layer.metadata("tcp.len").unwrap().value().parse().unwrap();
-        let is_server_packet = tcp_layer.metadata("tcp.dstport").unwrap().value().parse::<u32>().unwrap() > tcp_layer.metadata("tcp.srcport").unwrap().value().parse::<u32>().unwrap();
+        let is_server_packet = is_server_packet(&packet);
         let adjusted_length = if is_server_packet { -length } else { length };
 
         let seq = tcp_layer.metadata("tcp.seq").unwrap().value().parse().unwrap();
@@ -135,7 +141,7 @@ pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_si
                     found_match = true;
                 } 
                 // Echoes are sometimes slightly larger (see scan.rs), so we need to account for that.
-                else if packet_infos[curr+itr].length == -(keystroke_size as i32 + 8) || packet_infos[curr+itr].length == -(keystroke_size as i32 + 16) {
+                else if packet_infos[curr+itr].length == -(keystroke_size as i32 + 8) || packet_infos[curr+itr].length == -(keystroke_size as i32 + KEYSTROKE_UPPER_BOUND) {
                     ordered_packets.push(packet_infos.remove(curr+itr));
                     found_match = true;
                 }
@@ -190,6 +196,6 @@ pub fn find_common_algorithm(first: &str, second: &str) -> Option<String> {
             return Some(entry.to_string());
         }
     }
-    
+
     None
 }
