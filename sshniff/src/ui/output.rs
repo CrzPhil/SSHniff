@@ -21,7 +21,10 @@ fn print_core(session: &SshSession) {
     let line = "\u{2500}";
     println!("\u{2503} Stream {}", Colour::Red.paint(session.stream.to_string()));
     println!("\u{2503} Duration (UTC): {} - {}", session.start_utc, session.end_utc);
-
+    println!("\u{2503} KEX         {}", Colour::Yellow.paint(&session.algorithms.0));
+    println!("\u{2503} Encryption  {}", Colour::Yellow.paint(&session.algorithms.1));
+    println!("\u{2503} MAC         {}", Colour::Yellow.paint(&session.algorithms.2));
+    println!("\u{2503} Compression {}", Colour::Yellow.paint(&session.algorithms.3));
     // Stacked:
     
 //    println!("\u{2503}");
