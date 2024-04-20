@@ -1,22 +1,24 @@
 use crate::analyser::core::SshSession;
-use crate::analyser::containers::{Keystroke, KeystrokeType};
-use serde::Serialize;
+use crate::analyser::containers::{self, Keystroke, KeystrokeType};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 use ansi_term::Colour;
 
 /// Prints all the human-readable output to console.
-pub fn print_results(session: &SshSession) {
+pub fn print_results(sessions: &HashMap<u32, SshSession>) {
     println!("\n\u{250F}\u{2501}\u{2501}\u{2501}\u{2501} Results");
-    print_core(session);
-    print_result_sequence(session);
-    
-    // Only print if keystrokes were analysed.
-    if !&session.keystroke_data.is_empty() {
-        print_keystrokes(session);
+    for session in sessions.values() {
+        print_core(session);
+        print_result_sequence(session);
+        
+        // Only print if keystrokes were analysed.
+        if !&session.keystroke_data.is_empty() {
+            print_keystrokes(session);
+        }
+        println!("\u{2523}\u{2501}\u{2501}\u{2501}\u{2501}");
     }
-    println!("\u{2517}\u{2501}\u{2501}\u{2501}\u{2501}");
 }
 
 /// Prints the core metadata to console. 
@@ -99,7 +101,8 @@ fn print_keystrokes(session: &SshSession) {
 /// Saves the keystroke sequences to a specified file as JSON data.
 ///
 /// Data is saved as a simple JSON array of keystroke objects.
-pub fn save_keystroke_sequences(sequences: &Vec<Vec<Keystroke>>, file_path: &Path) -> Result<(), serde_json::Error> {
+/// Currently not used. Maybe if we add a flag to save sessions separately, this will be useful again. 
+pub fn _save_keystroke_sequences(sequences: &Vec<Vec<Keystroke>>, file_path: &Path) -> Result<(), serde_json::Error> {
     // Serialize the data to JSON string
     let serialized_data = serde_json::to_string(&sequences)?;
 
@@ -117,9 +120,24 @@ pub fn save_keystroke_sequences(sequences: &Vec<Vec<Keystroke>>, file_path: &Pat
 /// Returns all data as JSON, which can be directly piped to jq, if printed. 
 ///
 /// Triggered by the `--json` flag.
-pub fn data_as_json(session: &SshSession) -> Result<String, serde_json::Error> {
+pub fn data_as_json(sessions: &HashMap<u32, SshSession>) -> Result<String, serde_json::Error> {
     // Serialize the data to JSON string
-    let serialized = serde_json::to_string(session)?;
+    let serialized = serde_json::to_string(&sessions)?;
+    Ok(serialized)
+}
+
+/// Returns all keystroke-related data as JSON.
+/// 
+/// Triggered by combination of `--json` and `-k`.
+pub fn keystrokes_as_json(sessions: &HashMap<u32, SshSession>) -> Result<String, serde_json::Error> {
+    // Bypass the SshSession struct and only collect the keystroke sequences.
+    let keystroke_only_map: HashMap<u32, &Vec<Vec<containers::Keystroke>>> = sessions
+        .iter()
+        .map(|(&stream_id, session)| (stream_id, &session.keystroke_data))
+        .collect();
+
+    // Serialize the data to JSON string
+    let serialized = serde_json::to_string(&keystroke_only_map)?;
     Ok(serialized)
 }
 

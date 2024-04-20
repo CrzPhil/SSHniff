@@ -40,11 +40,11 @@ impl<'a> fmt::Display for SshSession<'a> {
 /// Operates on a single packet stream; will have to be called iteratively for multiple streams.
 /// The `only_meta` parameter allows the caller to skip keystroke analysis.
 ///     By default, the full analysis will run, unless only_meta = true.
-pub fn analyse(packet_stream: &[Packet], only_meta: bool) -> SshSession {
+pub fn analyse(stream_id: u32, packet_stream: &[Packet], only_meta: bool) -> SshSession {
     log::info!("Starting analysis.");
 
     let mut session = SshSession {
-        stream: 0,
+        stream: stream_id,
         new_keys_at: 0,
         keystroke_size: 0,
         prompt_size: 0,
