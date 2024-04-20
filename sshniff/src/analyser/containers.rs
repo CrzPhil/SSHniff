@@ -1,27 +1,41 @@
+//! Contains custom structs, enums, and impls.
 use rtshark::Packet;
 use serde::{ser::SerializeStruct, Serialize};
 use std::fmt;
 
+/// Keystroke implementation
 #[derive(Clone, Debug, Serialize)]
 pub struct Keystroke {
+    /// Inferred type of keystroke
     pub k_type: KeystrokeType,
+    /// UNIX timestamp taken from [rtshark] [Packet]
     pub timestamp: i64,
+    /// Returned bytes; `None` for typical keystrokes, `Some()` for [Enter](KeystrokeType::Enter)
     pub response_size: Option<u128>,
+    /// tcp.seq
     pub seq: i64,
 }
 
+/// Types of Keystroke
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum KeystrokeType {
+    /// Regular Keystroke
     Keystroke,
+    /// Backspace/Delete Keystroke
     Delete,
+    /// Tab-completion Keystroke
     Tab,
+    /// Return/Enter Keystroke
     Enter,
+    /// Left/Right arrow key 
     ArrowHorizontal,
+    /// Up/Down arrow key
     ArrowVertical,
+    /// Unknown Keystroke
     Unknown,
 }
 
-// Things that we are looking for before successful login.
+/// Things that we are looking for before successful login.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Event {
     WrongPassword,
@@ -40,16 +54,23 @@ impl fmt::Display for Event {
     }
 }
 
+/// Packet representation for easier access.
 #[derive(Clone, Debug)]
 pub struct PacketInfo<'a> {
+    /// Index in the stream array/slice.
     pub index: usize,
+    /// tcp.seq.
     pub seq: i64,
-    pub length: i32,    // We use i32 to allow for negative values, indicating server packets
+    /// tcp.len - We use [i32] to indicate STC packets with a negative length.
+    pub length: i32,    
+    /// Reference to "original" [Packet].
     pub packet: &'a Packet,
-    pub description: Option<String>,   // For later printing (?)
+    /// Optional description for later printing.
+    pub description: Option<String>,  
 }
 
 impl<'a> PacketInfo<'a> {
+    /// Constructor that does most of the heavy lifting using an existing [Packet].
     pub fn new(packet: &'a Packet, index: usize, description: Option<String>) -> Self {
         let tcp_layer = packet.layer_name("tcp").unwrap();
         let seq = tcp_layer.metadata("tcp.seq").unwrap().value().parse::<i64>().unwrap();
@@ -73,6 +94,7 @@ impl<'a> PacketInfo<'a> {
     }
 }
 
+/// [Serde](serde) serialiser for output/saving.
 impl Serialize for PacketInfo<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where

@@ -1,3 +1,6 @@
+//! ANSII, UNICODE, and FUN! 
+//! 
+//! (it was not fun doing this bit. unicode tables drove me mad).
 use crate::analyser::core::SshSession;
 use crate::analyser::containers::{self, Keystroke, KeystrokeType};
 use std::collections::HashMap;
@@ -63,6 +66,10 @@ fn print_core(session: &SshSession) {
     println!("\u{2503}");
 }
 
+/// Prints a [session](SshSession)'s [results](SshSession::results).
+/// 
+/// [Results](SshSession::results) consist of [PacketInfos](containers::PacketInfo), whose descriptions are printed out sequentially.
+/// Assumes that all [PacketInfos](containers::PacketInfo) added contain [descriptions](containers::PacketInfo::description).
 fn print_result_sequence(session: &SshSession) {
     let results = &session.results;
 
@@ -141,7 +148,7 @@ pub fn keystrokes_as_json(sessions: &HashMap<u32, SshSession>) -> Result<String,
     Ok(serialized)
 }
 
-/// Saves json data to a given file
+/// Saves JSON data to a given file
 pub fn data_to_file(data: String, file_path: &Path) -> Result<(), io::Error> {
     let mut file = File::create(file_path)?;
     file.write_all(data.as_bytes())?;

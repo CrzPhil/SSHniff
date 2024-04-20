@@ -109,13 +109,13 @@ pub fn create_size_matrix(packets: &[Packet]) -> Vec<PacketInfo> {
     }).collect()
 }
 
-/// Orders PacketInfos into their inferred order of being sent. 
+/// Orders [PacketInfo]s into their inferred order of being sent. 
 ///
 /// To do so, for every keystroke-length packet, we look ahead a few packets for a server echo,
 /// which may have been sent out-of-order. We add both to the ordered vector. 
 /// Rinse and repeat until all packets are ordered.
 /// There's some nuance to this as server echoes sometimes differ in size. 
-/// We account for that by checking up to keystroke_size + 16 as possible responses.
+/// We account for that by checking up to keystroke_size + [KEYSTROKE_UPPER_BOUND] as possible responses.
 pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_size: u32) -> Vec<PacketInfo<'a>> {
     log::info!("Ordering keystrokes.");
     let mut ordered_packets: Vec<PacketInfo<'a>> = Vec::new();
@@ -171,10 +171,13 @@ pub fn get_message_code(packet: &Packet) -> Option<u32> {
     message_code
 }
 
+/// Checks if a [PacketInfo] is a keystroke.
+/// Probably a stupid method now that I look at it... only used once.
 fn is_keystroke(packet: &PacketInfo, keystroke_size: u32) -> bool {
     packet.length == keystroke_size as i32
 }
 
+/// MD5 Hash for HASSSH calculations. 
 pub fn get_md5_hash(string_in: String) -> String {
     let mut hasher = Md5::new();
     hasher.update(string_in);

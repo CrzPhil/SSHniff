@@ -1,3 +1,7 @@
+//! Entrypoint to SSHniff. 
+//! 
+//! Contains [clap] argument parsing and [simple_logger] setup. 
+//! Calls [analyse] and feeds output to [ui] for handling. 
 mod analyser;
 mod ui;
 

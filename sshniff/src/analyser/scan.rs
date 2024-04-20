@@ -1,4 +1,4 @@
-use core::panic;
+//! Contains scanning/finding functions that iterate packet streams. 
 use std::{u128, usize};
 use crate::analyser::utils::{self, get_message_code};
 use super::containers::{PacketInfo, Event, KeystrokeType, Keystroke};
@@ -97,21 +97,12 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
     while index < packet_infos.len() - 2 {
         // TODO: looks like if there are previous commands and arrow=up, the echo size can give
         // away information about how long the command is. Longer command = larger size. 
-        // Also, left & right arrows seem to always echo keystroke_size, whereas up and down vary
-        // in sizes; depending on failure, success, command length, etc.
         
-        // Arrow keys seem to be keystroke_size + 8 from client, echo may be keystroke_size-
-        // depends on what arrow key and if there are previous commands. Setting 16 as bound.
-        // TODO !!! : This 16 is also set in ordered_packets, better to set a const somewhere to ensure
-        // parity
-        if packet_infos[index].length > keystroke_size && packet_infos[index].length <= (keystroke_size + 16) { 
+        // Arrow keys seem to be keystroke_size + 8 from client, echo may be keystroke_size;
+        // depends on what arrow key and if there are previous commands. 
+        // Upper bound is set to be paired with the ordering function in `utils`.
+        if packet_infos[index].length > keystroke_size && packet_infos[index].length <= (keystroke_size + utils::KEYSTROKE_UPPER_BOUND) { 
             let next_packet = &packet_infos[index+1];
-            // Problem:
-            // If the cursor is not at the end of the command and a character is typed/deleted, the
-            // returned echo is larger (+8) than keystroke_size. How do we stop it from being
-            // interpreted as a Return? probably need to loop inside this match until Return, then
-            // skip the sequence.
-            
             // Left arrow seems to echo keystroke_size, Right arrow (if before end of command)
             // seems to echo same size (> keystroke_size)
             if next_packet.length == -keystroke_size || next_packet.length == packet_infos[index].length {
@@ -123,6 +114,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                     seq: packet_infos[index].seq,
                 });
 
+                // We use the observed arrow key size as guidance for nested arrow-presses
                 let arrow_length = packet_infos[index].length;
 
                 // We move forward two packets; We now loop through packets that could be
@@ -130,15 +122,13 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                 // sequential server packets.
                 index += 2;
 
-                // Problem: 
-                // Packet ordering breaks important sequences that allow us to infer the arrow
-                // keys and subsequent actions.
                 loop {
                     if utils::is_server_packet(packet_infos[index+2].packet) {
                         break;
                     }
-                    // Deletion echoes are same size, but we can't reliably distinguish between
+                    // Deletion echoes have the same size, but we can't reliably distinguish between
                     // keystrokes and deletions after moving into the command with arrows.
+                    // Therefore we push the `Unknown` `KeyType`.
                     if packet_infos[index].length == keystroke_size && packet_infos[index+1].length == -arrow_length {
                         log::debug!("Delete OR Keystroke: {}", packet_infos[index].seq);
                         keystrokes.push(Keystroke {
@@ -148,7 +138,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                             seq: packet_infos[index].seq,
                         });
                     }
-                    // interestingly, it looks like keystroke echoes can be larger if in the middle
+                    // Interestingly, it looks like keystroke echoes can be larger if in the middle
                     // of the command. But not always.
                     else if packet_infos[index].length == keystroke_size && packet_infos[index+1].length < -arrow_length {
                         log::debug!("Delete OR Keystroke: {}", packet_infos[index].seq);
@@ -171,7 +161,8 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                     }
                     // If we are back to Client/Server echos of keystroke_size, we must be at the
                     // end of the command and can exit this loop.
-                    // I am not sure if we can reach this point, though.
+                    // I am not sure if we can reach this point, though, since we have a check for
+                    // consecutive server packets indicating a RETURN.
                     else if packet_infos[index].length == keystroke_size && packet_infos[index+1].length == -keystroke_size {
                         todo!("Reachable?")
                     } 
@@ -210,7 +201,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
             });
         } 
         // Backspace/Delete results in an echo that is keystroke_size + 8
-        // Problem: Ctrl+a (jump to start) and Ctrl+e also fulfill this condition.
+        // Problem: (TODO) Ctrl+a (jump to start) and Ctrl+e also fulfill this condition.
         else if next_packet.length == -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
             log::debug!("Delete: {}", packet_infos[index].seq);
             keystrokes.push(Keystroke {
@@ -236,7 +227,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
         // packets returned. 
         else if next_packet.length <= -keystroke_size && next_next_packet.length <= -keystroke_size && !keystrokes.is_empty() {
             log::debug!("Return: {}", packet_infos[index].seq);
-            // After running a command (by sending enter/return), the return is echoed (but not -keystroke_size length, interestingly)
+            // After running a command (by sending enter/return), the return is echoed (but not always -keystroke_size length, interestingly)
             // We then iterate through the next packets until a Client packet, which indicates the end of the response (at least for typical commands).
             let mut end: usize = index + 2;
             let mut response_size: u128 = 0;
@@ -276,8 +267,8 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
 /// TODO: Testing has shown this as inconclusive. 
 /// I cannot verify the described behaviour; the Server-Client sandwich is found, but also in non-agent-forwarding connections.
 /// Further, the sizings are off and inconsistent. As this is low-priority, I will postpone implementation and research. 
-pub fn scan_for_agent_forwarding(packet_infos: &[PacketInfo]) {
-    let mut ctr = 0;
+pub fn _scan_for_agent_forwarding(packet_infos: &[PacketInfo]) {
+    let mut _ctr = 0;
 
     // According to Packet Strider, tell-tale client packet occurs between packets 18-22
     // TODO: verify/investigate this claim; fine-tune accordingly.
@@ -346,118 +337,11 @@ pub fn scan_for_host_key_accepts<'a>(packet_infos: &[PacketInfo<'a>], logged_in_
     None
 }
 
-// TODO (feature)
-// We can add a check for when a stream's last packet is prompt_size, pretty sure this indicates a
-// rejected login and connection termination.
-// TODO: (verify) Looks like key offer sizes are static for each key:
-// checked -> similar- yes, static- no. Testing with other server showed a disparity by a few bytes. So
-// padding/algorithm-dependent? The former maybe, the latter definitely. Guess we'll have to go
-// through all algorithms, on different servers, and see if we can create a spectrum to classify
-// these properly. In the test the encryption was the same, but Kex algs were different;
-// curve25519-sha256 for the "smaller" packets, sntrup761x25519-sha512@openssh.com with +8 bytes.
-// Set same KexAlgorithm where sntrup was used; same byte disparity, so likely unrelated.
-// I get the impression that this is more server-dependant rather than on the client side. 
-//
-// Note that server response sizes seem to also grow- and shrink accordingly to the variance in the
-// client packet:
-// e.g.,            ECDSA -> 264 (wireshark), accepted key responds with 232 (wireshark).
-// On another day,  ECDSA -> 262 (wireshark), accepted key responds with 230 (wireshark).
-
-// 
-// RSA: 492-500 (558-560-568 in wireshark view) -> NOTE! 558/560 in WS are both tcp=492 bytes.
-// ED25519: 140-148 (206-208-216 in wireshark view)
-// ECDSA: 188-196-204-212 (256-264-272-280 (280 seen with aes256-gcm@openssh.com cipher) in wireshark view)
-// DSA: TBD
-//
-// TODO: With ETM ciphers with known length, we can have a separate classification, perhaps even
-// more precise.
-pub fn _scan_for_key_offers<'a>(packet_infos: &'a[PacketInfo<'a>], prompt_size: i32) -> Vec<(&'a PacketInfo<'a>, bool)> {
-    log::info!("Looking for key offers.");
-    // TODO: (decide on standard)
-    // I know at some spots we use the negative size as indication of STC packets, but here it
-    // seems too cumbersome and counter-intuitive, as the stuff happening here can already be confusing.
-    assert!(prompt_size > 0);
-
-    // packet - was_accepted
-    let mut offers: Vec<(&PacketInfo, bool)> = Vec::new();
-    // Skip Kex init
-    let offset = 8;
-
-    for (index, packet_info) in packet_infos.iter().skip(offset).take(100).enumerate() {
-        // Look for login prompt
-        if packet_info.length.abs() != prompt_size {
-            continue;
-        }
-
-        // If we get a login prompt, check next-next (current +2) packet for prompt_size
-        // If prompt_size, it means a public key was offered (but not used to authenticate, either
-        // because it was rejected or no private key was found/used to authenticate).
-        let packet_after_next = &packet_infos[offset+index+2];
-
-        if packet_after_next.length.abs() == prompt_size {
-            // This is the client either offering a pubkey, or the client typing a wrong password.
-            // We compare it to the known sizes; there might be a small probability of a
-            // false-positive, if the password is buffered to the same size as a key. TODO
-            let packet_next = &packet_infos[offset+index+1];
-            // TODO 
-            // Take this further and create an Enum; include in the output what keys were offered,
-            // etc.
-            match packet_next.length {
-                492 => {
-                    // RSA
-                    log::debug!("Found RSA rejected key offer.");
-                },
-                140 => {
-                    // ED25519
-                    log::debug!("Found ED25519 rejected key offer.");
-                },
-                196 => {
-                    // ECDSA
-                    log::debug!("Found ECDSA rejected key offer.");
-                },
-                _ => {
-                    // If it doesn't match a known keysize, then it was _most likely_ a wrong
-                    // password.
-                    log::debug!("Found wrong password attempt, sized {}", packet_next.length);
-                    continue;
-                }
-            }
-            // PubKey offered, rejected
-            log::debug!("Found offered key of length {}, (rejected)", packet_next.length);
-            offers.push((packet_after_next, false));
-        } else if packet_after_next.length.abs() > prompt_size {
-            // If the packet after next is larger in size, client either logged in, or, offered a
-            // valid key
-
-            // If the packet after next of the current packet after next (so current packet +4) is a login
-            // prompt, then the client opted not to authenticate using the valid key.
-            let packet_after_four = &packet_infos[offset+index+4];
-
-            if packet_after_four.length.abs() == prompt_size {
-                // This means a key was offered, accepted, but not used to authenticate.
-                // i.e.: id_rsa.pub is in server's authorized_keys, but id_rsa was not used/found by
-                // client to auth.
-                // packet_after_four therefore indicates another prompt, either for another key
-                // offer or for the actual password.
-                let packet_next = &packet_infos[offset+index+1];
-
-                log::debug!("Found offered key of length {}, (accepted)", packet_next.length);
-                offers.push((packet_after_next, true));
-            } else {
-                // Not sure what else indicates. shouldn't happen, I guess.
-                break;
-            }
-        } 
-    }
-
-    offers
-}
-
 /// Scans for login-related findings, such as key offers, key accepts/rejects, password attempts.
 ///
 /// Uses research findings of packet length ranges to classify key types (RSA, ED25519, ECDSA).
 pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, new_keys_index: usize, logged_in_at: usize) -> Vec<PacketInfo<'a>> {
-    let offset = new_keys_index;
+    let _offset = new_keys_index;
     // We only care about the slice of packets between the first login prompt and up to the
     // successful logon.
 
@@ -475,7 +359,6 @@ pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, ne
 //                            }).index;
     let initial_prompt = packet_infos[new_keys_index+4].index;
 
-    //let mut events: Vec<Event> = Vec::new();
     let mut event_packets: Vec<PacketInfo> = Vec::new();
 
     let mut ptr: usize = initial_prompt;
@@ -502,7 +385,6 @@ pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, ne
             let event = match next_packet.length {
                 492..=500 => {
                     log::debug!("RSA key offered and rejected.");
-                    //events.push(Event::OfferRSAKey);
                     event_packet = next_packet.clone();
                     event_packet.description = Some(Event::OfferRSAKey.to_string());
                     event_packets.push(event_packet);
@@ -510,7 +392,6 @@ pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, ne
                 },
                 140..=148 => {
                     log::debug!("ED25519 key offered and rejected.");
-                    //events.push(Event::OfferED25519Key);
                     event_packet = next_packet.clone();
                     event_packet.description = Some(Event::OfferED25519Key.to_string());
                     event_packets.push(event_packet);
@@ -518,7 +399,6 @@ pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, ne
                 },
                 188..=212 => {
                     log::debug!("ECDSA key offered and rejected.");
-                    //events.push(Event::OfferECDSAKey);
                     event_packet = next_packet.clone();
                     event_packet.description = Some(Event::OfferECDSAKey.to_string());
                     event_packets.push(event_packet);
@@ -603,6 +483,9 @@ pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, ne
 }
 
 /// Looks for signature SSH2_MSG_USERAUTH_SUCCESS server response packet.
+/// 
+/// Research showed that this packet has a length of either 28 or 36 bytes;
+/// see `notes.md` for analysis.
 pub fn find_successful_login(packet_infos: &[PacketInfo]) -> Option<usize> {
     // Maybe, if the SshSession struct comes to fruition, we can use the Cipher field to tailor
     // this comparison to the current session, instead of comparing it to "all" possibilities (yes,

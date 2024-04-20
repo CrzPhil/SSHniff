@@ -1,3 +1,5 @@
+//! Core of SSHniff.
+//! Calls all [scan](super::scan) functions and aggregates them into a single [SshSession]. 
 use super::scan::{scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data, find_successful_login, scan_for_reverse_session_r_option};
 use super::containers;
 use super::utils;
@@ -257,9 +259,7 @@ pub fn find_meta_size(packets: &[Packet]) -> Result<[containers::PacketInfo; 3],
     Err("New Keys packet not found within the first 50 packets")
 }
 
-// TODO: looks like there's actually a `ssh.kex.hassh` metadata associated with these KEX Init
-// packets, from which we can directly grab the hassh values, as opposed to calculating them. 
-// Not sure if this is a wireshark thing or actually transmitted, so I'm disregarding it for now.
+
 /// Iterates through KEX and calculates server and client HASSH, finds the negotiated KEX and encryption ciphers used.
 /// 
 /// Returns 6 strings: Client Protocol, Server Protocol, KEX Algorith, ENC Algorithm, MAC Algorithm, CMP Algorithm.
@@ -271,11 +271,6 @@ pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 6], &'static str> 
     let mut hassh_server_found: bool = false;
     let mut sport: u32;
     let mut dport: u32;
-
-    // TODO:
-    // All of these can be IMMUTABLE but the compiler is too dumb to see that the if statement does
-    // not allow them to be assigned multiple times, or there's somehow an edge case that I am
-    // missing. Fix the muts, because it is giving me heartache. FFS
 
     // Client to Server (cts) -> hassh
     let mut client_kex: &str = "";
@@ -312,10 +307,9 @@ pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 6], &'static str> 
 
         let tcp_layer = packet.layer_name("tcp").unwrap();
 
-        // TODO: There has GOT to be a nicer way of doing these operations. 
+        // Get Source/Destination port to determine if client (>22) or server (22) 
         sport = tcp_layer.metadata("tcp.srcport").unwrap().value().parse().unwrap();
         dport = tcp_layer.metadata("tcp.dstport").unwrap().value().parse().unwrap();
-
 
         if (sport > dport) && !hassh_client_found {
             client_kex = ssh_layer.metadata("ssh.kex_algorithms")
@@ -346,11 +340,6 @@ pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 6], &'static str> 
         }
     }
 
-    // TODO:
-    // Here, he adds a check for sport < dport, saying kex packets may arrive out-of-order, so they
-    // sip, dip, sport, dport are switched. Not sure how this can happen or affect our
-    // implementation, but something to watch out for during testing.
-    
     Ok([
         hassh.ok_or("Failed to get hassh")?, 
         hassh_server.ok_or("Failed to get hassh_server")?, 
@@ -369,10 +358,6 @@ pub fn find_meta_protocol(packets: &[Packet]) -> Result<[String; 6], &'static st
     let mut protocol_client = None;
     let mut protocol_server = None;
 
-    // We hAvE to initialise sip and dip to stop the compiler from yapping about uninitialised
-    // variables, despite ASSERTING that the loop will run at least once.
-    // Yes, now writing this I see that even if the loop runs we can hit continues that would cause
-    // the variables to remain uninited, but leave me be I've been coding for a long time.
     let mut sport = 0;
     let mut dport = 0;
     let mut sip: &str = "";
