@@ -58,7 +58,7 @@ fn main() {
         out = None;
     }
 
-    let streams = analyser::utils::load_file(args.file, args.nstream);
+    let streams = analyser::utils::load_file(args.file.clone(), args.nstream);
     let key = streams.keys().into_iter().next().unwrap();
 
     let session = analyser::core::analyse(streams.get(key).unwrap());
@@ -67,7 +67,8 @@ fn main() {
     if args.json {
         let json = output::data_as_json(&session);
         if out.is_some() {
-            let _ = output::data_to_file(json.unwrap(), std::path::Path::new(&format!("{}/ssh_session.json", args.output_dir.unwrap()).to_string()));
+            let stem = std::path::Path::new(&args.file).file_stem().unwrap();
+            let _ = output::data_to_file(json.unwrap(), std::path::Path::new(&format!("{}/{}_ssh_session.json", args.output_dir.unwrap(), stem.to_owned().into_string().unwrap()).to_string()));
         } else {
             println!("{}", json.unwrap());
         }
