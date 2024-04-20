@@ -3,13 +3,20 @@ mod ui;
 
 use clap::{Parser, ArgAction};
 use log::LevelFilter;
-use simple_logger::{init_with_env, SimpleLogger};
+use simple_logger::SimpleLogger;
 use ui::output;
 use std::fs;
 
 /// SSHniff is a packet forensics tool for SSH
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(
+    name = "SSHniff",
+    author = "Philippos Giavridis <philippos.giavridis@city.ac.uk>", 
+    version = "alpha", 
+    about = "Analyses SSH traffic metadata", 
+    long_about = "todo",
+    before_help = "GNU General Public License v3.0",
+)]
 struct Args {
     /// pcap/pcapng file to analyze
     #[arg(short = 'f', long, value_parser)]
@@ -19,7 +26,7 @@ struct Args {
     #[arg(short, long, default_value_t = -1, value_parser)]
     nstream: i32,
 
-    /// Display stream metadata only
+    /// Only output session metadata (no keystrokes)
     #[arg(short = 'm', long, action = ArgAction::SetTrue)]
     metaonly: bool,
 
@@ -27,24 +34,16 @@ struct Args {
     #[arg(short = 'k', long, action = ArgAction::SetTrue)]
     keystrokes: bool,
 
-    /// Directory to output plots
+    /// Directory to output aggregated data
     #[arg(short = 'o', long, value_parser)]
     output_dir: Option<String>,
-
-    /// Sliding window size, # of packets to side of window center packet, default is 2
-    #[arg(short = 'w', long, default_value_t = 2, value_parser)]
-    window: i32,
-
-    /// Stride between sliding windows, default is 1
-    #[arg(short = 's', long, default_value_t = 1, value_parser)]
-    stride: i32,
 
     /// Display output as formatted JSON
     #[arg(short = 'j', long, action = ArgAction::SetTrue)]
     json: bool,
 
     /// Set the debug level (Off, Error, Warn, Info, Debug, Trace)
-    #[arg(short = 'd', long, default_value_t = LevelFilter::Off, value_parser = parse_level_filter)]
+    #[arg(short = 'd', long, default_value_t = LevelFilter::Info, value_parser = parse_level_filter)]
     debug: LevelFilter, 
 }
 
@@ -67,10 +66,12 @@ fn main() {
         out = None;
     }
 
+    // Load file into stream map: <stream_id> -> <packets>
     let streams = analyser::utils::load_file(args.file.clone(), args.nstream);
     let key = streams.keys().into_iter().next().unwrap();
 
-    let session = analyser::core::analyse(streams.get(key).unwrap());
+    // Todo: iterate streams properly 
+    let session = analyser::core::analyse(streams.get(key).unwrap(), args.metaonly);
 
     // ---- Output ----
     if args.json {

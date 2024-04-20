@@ -38,7 +38,9 @@ impl<'a> fmt::Display for SshSession<'a> {
 /// Core analysis function creating the SshSession object with all extracted data.
 ///
 /// Operates on a single packet stream; will have to be called iteratively for multiple streams.
-pub fn analyse(packet_stream: &[Packet]) -> SshSession {
+/// The `only_meta` parameter allows the caller to skip keystroke analysis.
+///     By default, the full analysis will run, unless only_meta = true.
+pub fn analyse(packet_stream: &[Packet], only_meta: bool) -> SshSession {
     log::info!("Starting analysis.");
 
     let mut session = SshSession {
@@ -138,6 +140,11 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
     };
 
     session.results.push(hostkey_acc);
+
+    // Skip keystroke analysis and processing if `only_meta` is true.
+    if only_meta {
+        return session;
+    }
 
     let keystrokes = scan_for_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
     let processed = process_keystrokes(keystrokes);

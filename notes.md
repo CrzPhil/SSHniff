@@ -8,31 +8,38 @@
 - [X] Determine hassh
 - [ ] Detect `-R` option 
 - [X] Detect login attempts
-- [ ] Detect key accept into `known_hosts`
+- [X] Detect key accept into `known_hosts`
 - [ ] Detect Agent Forwarding 
-- [ ] Detect file exfiltration
+- [ ] Detect file exfiltration 
 - [ ] Detect file infiltration 
-- [ ] Reverse SSH ???
-- [ ] Classify keystrokes
+- [ ] Reverse SSH 
+- [X] Classify keystrokes
 
 #### New features
 - [X] Detect key offers / accepts
 - [X] Identify key types 
-- [ ] Output latencies into processable format
+- [X] Output latencies into processable format
+- [X] Improve output (ciphers used, algos used, compression, mac, etc.)
 - [ ] Real-time monitoring
 
 ## To-do's 
 > Most `TODO`'s are in the codebase, as comments. The rest, more general ones, are here, so that I don't forget.
-- [ ] Refactor code into proper files (`scan.rs`, etc.)
+- [X] Refactor code into proper files (`scan.rs`, etc.)
 - [ ] Refactor functions to public / private, as needed
 - [ ] Write documentation (?)
 - [ ] More test cases with serialised packet data from PCAPs 
 - [ ] Coverage test (?) 
+- [ ] Detect interactive session (?)
+- [ ] Test multiple sessions in one pcap support 
+- [ ] Use Packet Length for ETM ciphers (!)
+- [ ] Add option to output pure Keystrokes without classifying them at all 
 
 ## Commands & Signatures
 
 I realised that once you run an arbitrary command, there seems to be a packet sandwich.  
-What I mean is that once you send Return, of keystroke\_len, the response consists of the standard-length response for a Return keystroke, i.e. 102 -> 118, followed by the returned data of the command, and ended by a same-sized packet for all commands, which I think indicates the user/cli prompt, i.e. 174 in length.  
+What I mean is that once you send Return, of keystroke\_len, the response consists of the standard-length response for a Return keystroke, i.e. 102 -> 118, followed by the returned data of the command, and ended by a same-sized* packet for all commands, which I think indicates the user/cli prompt, i.e. 174 in length (Wireshark view, TCP equivalent is 108).  
+
+*this is not, in fact, same-sized for all commands, but depends on some factors that are analysed further down. 
 
 I determined this by running `sleep 3`, which produces no output. The sequence is:
 
@@ -61,6 +68,55 @@ When running commands that do produce output, like `id`:
 1026 (Server)
 174 (Server)
 ```
+
+The problem is that sometimes the tail packet is padded into the command's output or whatever the previous server packet might have been. This would make it unreliable as a sole identifier of what delimits a command. 
+It does, however, convey yet another point of metadata. Since this tail-packet is the CLI prompt, in typical Linux distributions or shells it conveys/includes the current working directory.
+
+For instance, one of the Pi's used for this research would have the following prompt, once authenticated:
+
+```bash
+pig@raspberrypi:~ $ 
+```
+
+`~`, of course, is the user's `$HOME` directory. Before the client's first keystroke, this is the **last** server-to-client packet, with some size P (for our purposes let's say 108 (+-8) TCP).
+
+We could thus establish the "default" size as a packet with a TCP payload of 108 (+- 8) bytes. 
+If we then observe a command being typed, and assuming that the final STC packet is **not** padded into the output, which more often than not is the case, we can draw conclusions on whether the directory was changed, and, more significantly, we can even get an estimate of how long the full path is. 
+
+```bash
+pig@raspberrypi:/home $ 
+```
+
+Changing to `/home`, which is four characters more than the previous prompt, produces a size of 116 (+-8) TCP.
+
+```bash
+pig@raspberrypi:/var/log $ 
+```
+
+Another three bytes gives us 124 (+-8) TCP. (Two bytes would still be 116 (+-8) TCP).
+
+```bash
+pig@raspberrypi:/tmp/sevennn $ 
+```
+
+Another four bytes moves us up to 132 (+-8) TCP. You get the idea.
+
+So this could reveal:
+1. If the executed command caused us to change directory
+2. Whether we moved into a deeper nested dir or moved up / changed dirs
+
+Additionally, this could also reveal whether we changed users. For example, changing from `pig` to `root` by running `sudo su`:
+
+```bash
+pig@raspberrypi:/ $ sudo su
+root@raspberrypi:/#
+```
+
+> Added point here is that `su` has quite an obvious signature, as shown in Song et. al. So by spotting the `su` signature and then noticing a different prompt, we can be fairly confident of what took place. 
+
+There are some caveats here, which, depending on the perspective, could be even more telling. 
+On Debian, for instance, the prompt in the root shell is not coloured, whereas the low-priv prompt is. 
+This means there are significantly fewer bytes transmitted by a root prompt, which stands out when looking at the packet sizes.
 
 ## Ciphers
 
