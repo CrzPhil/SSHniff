@@ -21,6 +21,7 @@ pub struct SshSession<'a> {
     pub dst: String,
     pub hassh_s: String,
     pub hassh_c: String,
+    pub algorithms: (String, String, String, String),
     pub logged_in_at: usize,
     pub start_utc: String,
     pub end_utc: String,
@@ -30,7 +31,7 @@ pub struct SshSession<'a> {
 
 impl<'a> fmt::Display for SshSession<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SshSession '{}' SRC '{}' DST '{}' HASSH_C '{}' HASSH_S '{}' NK '{}' KS '{}' PS '{}' LIA '{}' Protocols '{:?}'", self.stream, self.src, self.dst, self.hassh_c, self.hassh_s, self.new_keys_at, self.keystroke_size, self.prompt_size, self.logged_in_at, self.protocols)
+        write!(f, "SshSession '{}' SRC '{}' DST '{}' HASSH_C '{}' HASSH_S '{}' KEX '{}' ENC '{}' MAC '{}' CMP '{}' NK '{}' KS '{}' PS '{}' LIA '{}' Protocols '{:?}'", self.stream, self.src, self.dst, self.hassh_c, self.hassh_s, self.algorithms.0, self.algorithms.1, self.algorithms.2, self.algorithms.3,  self.new_keys_at, self.keystroke_size, self.prompt_size, self.logged_in_at, self.protocols)
     }
 }
 
@@ -50,6 +51,7 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
         dst: String::new(),
         hassh_s: String::new(),
         hassh_c: String::new(),
+        algorithms: (String::new(), String::new(), String::new(), String::new()),
         logged_in_at: 0,
         start_utc: String::new(),
         end_utc: String::new(),
@@ -81,10 +83,12 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
 
     let hassh_server: String;
     let hassh_client: String;
+    let algorithms: (String, String, String, String);
     match find_meta_hassh(packet_stream) {
         Ok(vals) => {
             hassh_server = String::from(&vals[0]);
             hassh_client = String::from(&vals[1]);
+            algorithms = (String::from(&vals[2]), String::from(&vals[3]), String::from(&vals[4]), String::from(&vals[5]))
         }
         Err(err) => {
             log::error!("{err}");
@@ -94,6 +98,7 @@ pub fn analyse(packet_stream: &[Packet]) -> SshSession {
 
     session.hassh_s = hassh_server;
     session.hassh_c = hassh_client;
+    session.algorithms = algorithms;
     log::debug!("{session}");
 
     let protocols = match find_meta_protocol(packet_stream) {
@@ -248,8 +253,11 @@ pub fn find_meta_size(packets: &[Packet]) -> Result<[containers::PacketInfo; 3],
 // TODO: looks like there's actually a `ssh.kex.hassh` metadata associated with these KEX Init
 // packets, from which we can directly grab the hassh values, as opposed to calculating them. 
 // Not sure if this is a wireshark thing or actually transmitted, so I'm disregarding it for now.
-/// Iterate through KEX and calculate server and client HASSH, returning both.
-pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 2], &'static str> {
+/// Iterates through KEX and calculates server and client HASSH, finds the negotiated KEX and encryption ciphers used.
+/// 
+/// Returns 6 strings: Client Protocol, Server Protocol, KEX Algorith, ENC Algorithm, MAC Algorithm, CMP Algorithm.
+/// We assume the same algorithm is used STC-CTS. (TODO?)
+pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 6], &'static str> {
     log::info!("Calculating hassh");
 
     let mut hassh_client_found: bool = false;
@@ -263,18 +271,18 @@ pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 2], &'static str> 
     // missing. Fix the muts, because it is giving me heartache. FFS
 
     // Client to Server (cts) -> hassh
-    let mut client_kex: &str;
-    let mut client_enc_algs_cts: &str;
-    let mut client_mac_algs_cts: &str;
-    let mut client_cmp_algs_cts: &str;
+    let mut client_kex: &str = "";
+    let mut client_enc_algs_cts: &str = "";
+    let mut client_mac_algs_cts: &str = "";
+    let mut client_cmp_algs_cts: &str = "";
     let mut hassh_algorithms: String;
     let mut hassh = None;
 
     // Server to Client (stc) -> hassh_server
-    let mut server_kex: &str;
-    let mut server_enc_algs_stc: &str;
-    let mut server_mac_algs_stc: &str;
-    let mut server_cmp_algs_stc: &str;
+    let mut server_kex: &str = "";
+    let mut server_enc_algs_stc: &str = "";
+    let mut server_mac_algs_stc: &str = "";
+    let mut server_cmp_algs_stc: &str = "";
     let mut hassh_server_algorithms: String;
     let mut hassh_server = None;
 
@@ -330,12 +338,20 @@ pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 2], &'static str> 
             hassh_server_found = true;
         }
     }
+
     // TODO:
     // Here, he adds a check for sport < dport, saying kex packets may arrive out-of-order, so they
     // sip, dip, sport, dport are switched. Not sure how this can happen or affect our
     // implementation, but something to watch out for during testing.
     
-    Ok([hassh.ok_or("Failed to get hassh")?, hassh_server.ok_or("Failed to get hassh_server")?])
+    Ok([
+        hassh.ok_or("Failed to get hassh")?, 
+        hassh_server.ok_or("Failed to get hassh_server")?, 
+        utils::find_common_algorithm(&client_kex, &server_kex).ok_or("Failed to find common KEX")?, 
+        utils::find_common_algorithm(&client_enc_algs_cts, &server_enc_algs_stc).ok_or("Failed to find common ENC")?, 
+        utils::find_common_algorithm(&client_mac_algs_cts, &server_mac_algs_stc).ok_or("Failed to find common MAC")?, 
+        utils::find_common_algorithm(&client_cmp_algs_cts, &server_cmp_algs_stc).ok_or("Failed to find common CMP")?
+    ])
 }
 
 /// Find the protocols in use by server and client. Protocol means version/type of SSH

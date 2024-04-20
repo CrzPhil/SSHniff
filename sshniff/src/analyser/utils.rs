@@ -177,3 +177,19 @@ pub fn get_md5_hash(string_in: String) -> String {
     hex::encode(result)
 }
 
+/// Given two comma-separated lists of arbitrary entries, but in this case KEX or ENC algorithms, find the negotiated one.
+/// 
+/// The transmitted lists are already in 'preferred' order (see RFC-4253), so we just find the first mutual option.
+pub fn find_common_algorithm(first: &str, second: &str) -> Option<String> {
+    let entries_a: Vec<&str> = first.split(',').collect();
+    let entries_b: Vec<&str> = second.split(',').collect();
+    let set_b: std::collections::HashSet<&str> = entries_b.into_iter().collect();
+
+    for entry in entries_a {
+        if set_b.contains(entry) {
+            return Some(entry.to_string());
+        }
+    }
+    
+    None
+}
