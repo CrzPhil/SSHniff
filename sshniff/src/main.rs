@@ -50,6 +50,10 @@ struct Args {
     /// Set the debug level (Off, Error, Warn, Info, Debug, Trace)
     #[arg(short = 'd', long, default_value_t = LevelFilter::Info, value_parser = parse_level_filter)]
     debug: LevelFilter, 
+
+    /// Hardcode the keystroke length (tcp.len)
+    #[arg(short = 's', long, default_value_t = 0, value_parser)]
+    keystroke_size: u32,
 }
 
 fn parse_level_filter(s: &str) -> Result<LevelFilter, String> {
