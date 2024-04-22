@@ -19,7 +19,7 @@ use std::{collections::HashMap, fs};
     author = "Philippos Giavridis <philippos.giavridis@city.ac.uk>", 
     version = "alpha", 
     about = "Analyses SSH traffic metadata", 
-    long_about = "todo",
+    long_about = "SSHniff is a packet forensics tool for SSH.\n\nIt uses traffic analysis to extract metadata from a PCAP/NG intercept. The extracted data currently includes general session information such as KEX and encryption algorithms used, HASSH values, and server/client protocol versions; it also includes observed keystroke-related information, such as the individual keystroke timings and their latencies.\n\nKeystrokes are also classified into different types, such as Backspace, Enter (Return), and Arrow keys, all done using packet size analysis. Keystrokes are ordered into sequences, which are delimited by a Return keystroke, which also stores the server's response size which indicates the magnitude of the returned data.\n\nFor more information on methods and how to analyse the data, refer to this tool's repository.",
     before_help = "GNU General Public License v3.0",
 )]
 struct Args {

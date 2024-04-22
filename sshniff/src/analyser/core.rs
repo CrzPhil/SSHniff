@@ -133,15 +133,15 @@ pub fn analyse(stream_id: u32, packet_stream: &[Packet], only_meta: bool) -> Ssh
     let login_events = scan_login_data(&ordered, session.prompt_size, session.new_keys_at, session.logged_in_at);
     session.results.extend(login_events);
 
-    let hostkey_acc = match scan_for_host_key_accepts(&ordered, session.logged_in_at) {
-        Some(pinfo) => pinfo,
+    match scan_for_host_key_accepts(&ordered, session.logged_in_at) {
+        Some(pinfo) => {
+            // Hostkey acceptance occurs before the other events, so we set it first.
+            session.results.insert(0, pinfo);
+        },
         None => {
-            log::error!("TODO... hostkey_acc");
-            panic!();
+            log::error!("Failed to find Hostkey Acceptance.");
         }
     };
-
-    session.results.push(hostkey_acc);
 
     // Skip keystroke analysis and processing if `only_meta` is true.
     if only_meta {

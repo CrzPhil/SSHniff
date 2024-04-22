@@ -382,6 +382,9 @@ pub fn scan_login_data<'a>(packet_infos: &[PacketInfo<'a>], prompt_size: i32, ne
             // RSA: 492-500 (558-560-568 in wireshark view) -> NOTE! 558/560 in WS are both tcp=492 bytes.
             // ED25519: 140-148 (206-208-216 in wireshark view)
             // ECDSA: 188-196-204-212 (256-264-272-280 (280 seen with aes256-gcm@openssh.com cipher) in wireshark view)
+            // TODO: Sometimes a wrong password can be padded to either of these sizes. Should be
+            // easy to spot though if we start looking at time deltas, since key offers are sent
+            // automatically and in rapid succession, as opposed to passwords.
             let event = match next_packet.length {
                 492..=500 => {
                     log::debug!("RSA key offered and rejected.");
