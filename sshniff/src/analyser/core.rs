@@ -93,6 +93,7 @@ pub fn analyse(stream_id: u32, packet_stream: &[Packet], only_meta: bool) -> Ssh
         session.keystroke_size = verify;
     } else {
         log::warn!("Disagreement when finding keystroke size. Relying on alternative method.");
+        log::debug!("Alternative size: {}", verify);
         session.keystroke_size = verify;
     }
 
@@ -474,6 +475,7 @@ pub fn find_meta_protocol(packets: &[Packet]) -> Result<[String; 6], &'static st
 /// To produce the output, group keystroke sequences together.
 /// A sequence is the first keystroke up to the return, including the returned size.
 pub fn process_keystrokes(keystrokes: Vec<containers::Keystroke>) -> Vec<Vec<containers::Keystroke>> {
+    log::info!("Grouping keystroke sequences.");
     let mut out: Vec<Vec<containers::Keystroke>> = Vec::new();
     let mut itr = 0;
 
@@ -484,7 +486,9 @@ pub fn process_keystrokes(keystrokes: Vec<containers::Keystroke>) -> Vec<Vec<con
         curr = &keystrokes[itr];
         tmp_vec.push(curr.clone());
 
-        if curr.k_type == containers::KeystrokeType::Enter {
+        // Sequences are delimited by Enter (Return), or in edge cases if we reach the last
+        // keystroke without encountering a Return.
+        if curr.k_type == containers::KeystrokeType::Enter || itr == keystrokes.len()-1 {
             make_relative(&mut tmp_vec);
             out.push(tmp_vec.clone());
             tmp_vec.clear();
