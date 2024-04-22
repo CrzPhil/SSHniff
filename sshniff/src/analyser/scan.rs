@@ -4,6 +4,7 @@ use crate::analyser::utils::{self, get_message_code};
 use super::containers::{PacketInfo, Event, KeystrokeType, Keystroke};
 
 /// Returns timestamp of -R initiation (or None)
+/// This function's logic is adapted directly from Packet Strider.
 pub fn scan_for_reverse_session_r_option(ordered_packets: &Vec<PacketInfo>, prompt_size: i32) -> Option<i64> {
     let size = ordered_packets.len();
     let first_timestamp = ordered_packets[0].packet.timestamp_micros().unwrap();
@@ -191,6 +192,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
 
         // Check for keystroke -> response (echo) -> keystroke 
         // Edge case in OR statement: normal keystroke followed by arrow key (larger size)
+        // This logic is broadly adapted from Packet Strider, but the keystroke sizings are fine tuned.
         if next_packet.length == -keystroke_size && next_next_packet.length == keystroke_size || next_next_packet.length == keystroke_size + 8 {
             log::debug!("Keystroke: {}", packet_infos[index].seq);
             keystrokes.push(Keystroke {
@@ -211,7 +213,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
                             seq: packet_infos[index].seq,
             });
         } 
-        // Tab, TBD if feasible
+        // Tab, TBD if feasible, temporarily adapted from Packet Strider but does not seem reliable any longer.
         else if next_packet.length < -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
             log::debug!("Tab: {} - Next: {}, len: {}", packet_infos[index].seq, next_packet.seq, next_packet.length);
 
@@ -298,6 +300,7 @@ pub fn _scan_for_agent_forwarding(packet_infos: &[PacketInfo]) {
 /// Looks for client's acceptance of server's SSH host key.
 ///
 /// Happens when pubkey is in known_hosts.
+/// This logic is adapted from Packet Strider.
 pub fn scan_for_host_key_accepts<'a>(packet_infos: &[PacketInfo<'a>], logged_in_at: usize) -> Option<PacketInfo<'a>> {
     log::info!("Looking for host key acceptance by Client.");
     let mut result: PacketInfo;

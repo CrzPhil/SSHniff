@@ -1,5 +1,7 @@
 //! Core of SSHniff.
 //! Calls all [scan](super::scan) functions and aggregates them into a single [SshSession]. 
+use crate::analyser::utils::is_server_packet;
+
 use super::scan::{scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data, find_successful_login, scan_for_reverse_session_r_option};
 use super::containers;
 use super::utils;
@@ -64,12 +66,12 @@ pub fn analyse(stream_id: u32, packet_stream: &[Packet], only_meta: bool) -> Ssh
     };
 
     // Get start and end
-    let timeframe = get_start_and_end(packet_stream);
+    let timeframe = get_start_and_end(&packet_stream);
     session.start_utc = timeframe.0;
     session.end_utc = timeframe.1;
 
     // Get NewKeys, Keystroke Indicator, Login Prompt
-    let kex = match find_meta_size(packet_stream) {
+    let kex = match find_meta_size(&packet_stream) {
         Ok(infos) => infos,
         Err(err) => {
             log::error!("{err}");
@@ -81,14 +83,23 @@ pub fn analyse(stream_id: u32, packet_stream: &[Packet], only_meta: bool) -> Ssh
     session.results.push(kex[1].clone());
     session.results.push(kex[2].clone());
     session.new_keys_at = kex[0].index;
-    session.keystroke_size = kex[1].length as u32 - 8;
+    //session.keystroke_size = kex[1].length as u32 - 8;
     session.prompt_size = kex[2].length;
     log::debug!("{session}");
+
+    // Temporary measure to identify other ciphers
+    let verify = alt_find_keystroke_size(&packet_stream);
+    if verify == kex[1].length as u32 - 8 {
+        session.keystroke_size = verify;
+    } else {
+        log::warn!("Disagreement when finding keystroke size. Relying on alternative method.");
+        session.keystroke_size = verify;
+    }
 
     let hassh_server: String;
     let hassh_client: String;
     let algorithms: (String, String, String, String);
-    match find_meta_hassh(packet_stream) {
+    match find_meta_hassh(&packet_stream) {
         Ok(vals) => {
             hassh_server = String::from(&vals[0]);
             hassh_client = String::from(&vals[1]);
@@ -149,8 +160,17 @@ pub fn analyse(stream_id: u32, packet_stream: &[Packet], only_meta: bool) -> Ssh
     }
 
     let keystrokes = scan_for_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
-    let processed = process_keystrokes(keystrokes);
-    session.keystroke_data = processed;
+    
+    if keystrokes.len() == 0 {
+        log::warn!("Failed to find keystrokes using conventional method.");
+        let keystroke_size = alt_find_keystroke_size(&packet_stream);
+        let keystrokes_2 = scan_for_keystrokes(&ordered, keystroke_size as i32, session.logged_in_at);
+        let processed = process_keystrokes(keystrokes);
+        session.keystroke_data = processed;
+    } else {
+        let processed = process_keystrokes(keystrokes);
+        session.keystroke_data = processed;
+    }
 
     session
 }
@@ -173,6 +193,37 @@ pub fn get_start_and_end(packets: &[Packet]) -> (String, String) {
     let end_datetime: DateTime<Utc> = Utc.timestamp_micros(end_timestamp).unwrap();
 
     (start_datetime.format("%Y-%m-%d %H:%M:%S").to_string(), end_datetime.format("%Y-%m-%d %H:%M:%S").to_string())
+}
+
+/// Finds keystrokes via an alternative brute-forcy method.
+/// 
+/// When NewKeys+1 cannot be used to find keystroke len, this ought to do the trick.
+pub fn alt_find_keystroke_size(packets: &[Packet]) -> u32 {
+    log::info!("Employing alternative method to find keystroke size.");
+    let mut keystroke_size: u32 = 0;
+    let offset = 20;
+    for (i, packet) in packets.iter().enumerate().skip(offset) {
+        if !is_server_packet(packet) {
+            let tcp_layer = packet.layer_name("tcp").unwrap();
+            keystroke_size = tcp_layer.metadata("tcp.len").unwrap().value().parse::<u32>().unwrap();
+        } 
+
+        let sizes = (1..=4)
+            .map(|offset| {
+                packets.get(i + offset)
+                    .and_then(|p| p.layer_name("tcp"))
+                    .and_then(|tcp_layer| tcp_layer.metadata("tcp.len"))
+                    .map(|meta| meta.value().parse::<u32>())
+                    .ok_or("TCP layer or length metadata not found")
+                    .and_then(|res| res.map_err(|_| "Parsing TCP length failed")) 
+            }).collect::<Result<Vec<u32>, _>>().unwrap();
+        
+        if sizes[0] == sizes[1] && sizes[1] == sizes[2] && sizes[2] == sizes[3] {
+            return sizes[0];
+        }
+    }
+
+    keystroke_size
 }
 
 /// Finds the three core characteristrics of the session: New Keys Packet, Keystroke indicator
