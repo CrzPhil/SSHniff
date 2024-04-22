@@ -213,7 +213,7 @@ pub fn scan_for_keystrokes<'a>(packet_infos: &'a[PacketInfo<'a>], keystroke_size
         } 
         // Tab, TBD if feasible
         else if next_packet.length < -(keystroke_size + 8) && next_next_packet.length == keystroke_size {
-            log::debug!("Tab: {}", packet_infos[index].seq);
+            log::debug!("Tab: {} - Next: {}, len: {}", packet_infos[index].seq, next_packet.seq, next_packet.length);
 
             // TODO: refer to observation in notes -> I suspect this is far from fine-tuned.
             keystrokes.push(Keystroke {
