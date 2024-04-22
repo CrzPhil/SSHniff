@@ -1,5 +1,5 @@
-*.pcap
-*.pcapng
+sshniff/*.pcap
+sshniff/*.pcapng
 *.debug
 target/
 debug/

@@ -1,0 +1,25 @@
+ifconfig
+ifconfig
+ifconfig
+ifconfig
+ifconfig
+ifconfig
+ifconfig (botched with backspaces)
+uptime
+uptime
+uptime
+uptime
+uptime
+uptime
+INVALID UPTIME
+netstat -tlpn
+netstat -tlpn
+netstat -tlpn
+netstat -tlpn
+netstat -tlpn
+INVALID IPTABLES
+iptables -L
+iptables -L
+iptables -L
+iptables -L
+exit (sloppy)

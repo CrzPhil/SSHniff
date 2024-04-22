@@ -1,0 +1,15 @@
+sudo su
+iptables -S
+iptables -L
+sudo apt update
+cat /etc/resolv.conf
+cat /etc/hosts
+ifconfig
+systemctl start apache # error systemctl tart apache
+uptime
+whoami
+apt update
+netstat --tlpn
+systemctl status firejail
+exit
+exit
