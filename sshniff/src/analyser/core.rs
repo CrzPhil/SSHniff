@@ -396,7 +396,8 @@ pub fn find_meta_hassh(packets: &[Packet]) -> Result<[String; 6], &'static str> 
         hassh_server.ok_or("Failed to get hassh_server")?, 
         utils::find_common_algorithm(&client_kex, &server_kex).ok_or("Failed to find common KEX")?, 
         utils::find_common_algorithm(&client_enc_algs_cts, &server_enc_algs_stc).ok_or("Failed to find common ENC")?, 
-        utils::find_common_algorithm(&client_mac_algs_cts, &server_mac_algs_stc).ok_or("Failed to find common MAC")?, 
+        //utils::find_common_algorithm(&client_mac_algs_cts, &server_mac_algs_stc).ok_or("Failed to find common MAC")?, 
+        utils::find_common_algorithm(&client_mac_algs_cts, &server_mac_algs_stc).unwrap_or("No common mac found".to_string()),
         utils::find_common_algorithm(&client_cmp_algs_cts, &server_cmp_algs_stc).ok_or("Failed to find common CMP")?
     ])
 }
