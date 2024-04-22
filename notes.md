@@ -26,13 +26,14 @@
 > Most `TODO`'s are in the codebase, as comments. The rest, more general ones, are here, so that I don't forget.
 - [X] Refactor code into proper files (`scan.rs`, etc.)
 - [ ] Refactor functions to public / private, as needed
-- [ ] Write documentation (?)
+- [X] Write documentation
 - [ ] More test cases with serialised packet data from PCAPs 
 - [ ] Coverage test (?) 
 - [ ] Detect interactive session (?)
-- [ ] Test multiple sessions in one pcap support 
+- [X] Test multiple sessions in one pcap support 
 - [ ] Use Packet Length for ETM ciphers (!)
 - [ ] Add option to output pure Keystrokes without classifying them at all 
+- [ ] Add option to manually set certain packet sizes or indexes ?
 
 ## Commands & Signatures
 
