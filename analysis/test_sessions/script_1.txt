@@ -1,7 +1,0 @@
-uptime
-ss -tlpn
-sudo apt update
-sudo apt upgrade -y
-iptables -L
-sudo systemctl restart nginx
-exit
