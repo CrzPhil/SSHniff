@@ -18,7 +18,7 @@ cargo build --release
 
 ## Usage
 
-The tool uses a `PCAP/NG` file containing SSH session(s) to extract the metadata. A few such demo captures are included in the repository, under `analysis/test_sessions/` and `sshniff/test_captures/`. 
+The tool uses a `PCAP/NG` file containing SSH session(s) to extract the metadata. A few such demo captures are included in this project's sister repository, under [test_sessions](https://github.com/CrzPhil/SSH-Keystroke-Latency-Analysis/tree/main/test_sessions), as well as at `sshniff/test_captures/`. 
 
 Here is what running the tool looks like:
 
@@ -103,9 +103,9 @@ Once my thesis is graded, I will make sure to reference it here, as it goes into
 
 ## Keystroke Latency Analysis
 
-To check out how the metadata is leveraged to breach confidentiality, consult [analysis.ipynb](./analysis/analysis.ipynb); it is written as a sort of walkthrough, containing the sequential steps of my research. Its final section details how I found a bypass against the obfuscation measures introduced in OpenSSH patch 9.5. 
+To check out how the metadata is leveraged to breach confidentiality, consult [analysis.ipynb](https://github.com/CrzPhil/SSH-Keystroke-Latency-Analysis/blob/main/analysis.ipynb); it is written as a sort of walkthrough, containing the sequential steps of my research. Its final section details how I found a bypass against the obfuscation measures introduced in OpenSSH patch 9.5. 
 
-For a more condensed output of keystroke analysis techniques, you can refer to [shellbust.ipynb](./analysis/shellbust.ipynb), which just contains the functions and a few subroutines to play around with observed keystrokes. 
+For a more condensed output of keystroke analysis techniques, you can refer to [shellbust.ipynb](https://github.com/CrzPhil/SSH-Keystroke-Latency-Analysis/blob/main/shellbust.ipynb), which just contains the functions and a few subroutines to play around with observed keystrokes. 
 
 ## To-do
 
