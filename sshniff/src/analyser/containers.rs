@@ -33,6 +33,8 @@ pub enum KeystrokeType {
     ArrowVertical,
     /// Unknown Keystroke
     Unknown,
+    /// Chaff/Fake Traffic
+    Chaff,
 }
 
 /// Things that we are looking for before successful login.

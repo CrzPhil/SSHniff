@@ -2,7 +2,7 @@
 //! Calls all [scan](super::scan) functions and aggregates them into a single [SshSession]. 
 use crate::analyser::utils::is_server_packet;
 
-use super::scan::{scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data, find_successful_login, scan_for_reverse_session_r_option};
+use super::scan::{scan_for_host_key_accepts, scan_for_keystrokes, scan_login_data, find_successful_login, scan_for_reverse_session_r_option, scan_for_obfuscated_keystrokes};
 use super::containers;
 use super::utils;
 use core::{panic, fmt};
@@ -130,7 +130,19 @@ pub fn analyse(stream_id: u32, packet_stream: &[Packet], only_meta: bool) -> Ssh
     session.dst = String::from(format!("{}:{}", protocols[4], protocols[5]));
 
     let mut size_matrix = utils::create_size_matrix(packet_stream);
-    let ordered = utils::order_keystrokes(&mut size_matrix, session.keystroke_size);
+
+    // Hacky fix to accommodate Patch Bypass PoC
+    // Once we know the protocol versions, we can account for chaff and find spikes
+    let is_obfuscated = utils::is_obfuscated(&session.protocols.0,  &session.protocols.1);
+    let ordered: Vec<containers::PacketInfo>;
+
+    if  is_obfuscated {
+        log::warn!("Session uses obfuscation! Metadata extraction is experimental.");
+        session.keystroke_size *= 2;
+        ordered = utils::order_obfuscated_keystrokes(&mut size_matrix, session.keystroke_size);
+    } else {
+        ordered = utils::order_keystrokes(&mut size_matrix, session.keystroke_size);
+    }
 
     let logged_in_at = match find_successful_login(&ordered) {
         Some(index) => index,
@@ -160,8 +172,15 @@ pub fn analyse(stream_id: u32, packet_stream: &[Packet], only_meta: bool) -> Ssh
         return session;
     }
 
-    let keystrokes = scan_for_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
+    let keystrokes;
+
+    if is_obfuscated {
+        keystrokes = scan_for_obfuscated_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
+    } else {
+        keystrokes = scan_for_keystrokes(&ordered, session.keystroke_size as i32, session.logged_in_at);
     
+    }
+
     if keystrokes.len() == 0 {
         log::warn!("Failed to find keystrokes using conventional method.");
         let keystroke_size = alt_find_keystroke_size(&packet_stream);

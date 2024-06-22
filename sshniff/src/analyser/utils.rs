@@ -159,6 +159,116 @@ pub fn order_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_si
     ordered_packets
 }
 
+pub fn order_obfuscated_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, keystroke_size: u32) -> Vec<PacketInfo<'a>> {
+    log::info!("Ordering obfuscated keystrokes.");
+    let mut ordered_packets: Vec<PacketInfo<'a>> = Vec::new();
+    //let size = packet_infos.len();
+
+    let curr: usize = 0;
+    let mut found_match;
+
+    log::debug!("{} total packets.", packet_infos.len());
+
+    let mut fat_packets = Vec::new();
+
+    while !packet_infos.is_empty() {
+        found_match = false;
+
+        // Will catch initial keystroke and all the chaff
+        if is_keystroke(&packet_infos[curr], keystroke_size / 2) {
+            ordered_packets.push(packet_infos.remove(curr));
+            let mut itr: usize = 0;
+            while !found_match && itr < packet_infos.len() && itr < 10 {
+                // Found server echo of keystroke
+                if packet_infos[curr+itr].length == -(keystroke_size as i32  / 2) {
+                    // We remove it from the original vec and add it to ordered.
+                    // This is done so we don't match the same response to multiple forward packets
+                    // that might have been sent successively before the first resposne is
+                    // intercepted.
+                    ordered_packets.push(packet_infos.remove(curr+itr));
+                    found_match = true;
+                } 
+                // Echoes are sometimes slightly larger (see scan.rs), so we need to account for that.
+                else if packet_infos[curr+itr].length == -((keystroke_size as i32 / 2) + 8) || packet_infos[curr+itr].length == -((keystroke_size as i32 / 2) + KEYSTROKE_UPPER_BOUND) {
+                    ordered_packets.push(packet_infos.remove(curr+itr));
+                    found_match = true;
+                }
+                itr += 1;
+            }
+            if !found_match {
+                ordered_packets.push(packet_infos.remove(curr));
+            }
+        } else if is_keystroke(&packet_infos[curr], keystroke_size) {
+
+            // dbg
+            if packet_infos[curr].seq == 9238 {
+                log::warn!("Packet spotted.");
+            }
+
+            // Will catch fat packets
+            ordered_packets.push(packet_infos.remove(curr));
+            fat_packets.push(ordered_packets.len());
+
+            // This is zero because we removed the curr so we are looking at the first packet after curr at itr=0
+            // Itr basically only increments when we are dealing with consecutive client packets.
+            let mut itr: usize = 0;
+            while !found_match && itr < packet_infos.len() && itr < 10 {
+                if packet_infos[curr+itr].length == -(keystroke_size as i32 / 2) {
+
+                    // PROBABLY a RET because 3 consecutive stc packets, so don't delete consecutive server-side packets
+                    if packet_infos[curr+1].length < 0 && packet_infos[curr+2].length < 0 {
+                        log::debug!("Probably a RET"); 
+                        while packet_infos[curr+itr].length < 0 {
+                            log::debug!("Adding ret response: {}", packet_infos[curr+itr].seq);
+                            // shifts remaining elements left so we don't increment itr
+                            ordered_packets.push(packet_infos.remove(curr+itr));
+                            //packet_infos.remove(curr+itr);
+                        }
+                        found_match = true; 
+                        break;
+                    }
+                    // look ahead 4 packets to ensure we aren't skipping the actual echo in lieu of chaff
+                    // this should actually always just be a +1 lookahead maximum, but better safe, I guess
+                    for j in 1..=4 {
+                        if packet_infos[curr+itr+j].length == -((keystroke_size as i32 / 2) + 8) || packet_infos[curr+itr+j].length == -((keystroke_size as i32 / 2) + KEYSTROKE_UPPER_BOUND) {
+                            ordered_packets.push(packet_infos.remove(curr+itr+j));
+                            packet_infos.remove(curr+itr);
+                            found_match = true;
+                            break;
+                        }
+                    } 
+                    if !found_match {
+                        // We remove the echo from the original array, but also the second chaff echo, without adding it to the ordered array.
+                        ordered_packets.push(packet_infos.remove(curr+itr));
+                        packet_infos.remove(curr+itr);
+                        found_match = true;
+                    }
+                } 
+                // Echoes are sometimes slightly larger (see scan.rs), so we need to account for that.
+                else if packet_infos[curr+itr].length == -((keystroke_size as i32 / 2) + 8) || packet_infos[curr+itr].length == -((keystroke_size as i32 / 2) + KEYSTROKE_UPPER_BOUND) {
+                    ordered_packets.push(packet_infos.remove(curr+itr));
+                    packet_infos.remove(curr+itr);
+                    found_match = true;
+                }
+                itr += 1;
+            }
+            if !found_match {
+                ordered_packets.push(packet_infos.remove(curr));
+            }
+        }
+        
+        else {
+            // If non-keystroke, just add to the ordered vector
+            ordered_packets.push(packet_infos.remove(curr));
+        }
+    }
+    log::debug!("{} ordered packets.", ordered_packets.len());
+    log::debug!("{} fat packets.", fat_packets.len());
+    log::debug!("{:?}", fat_packets);
+
+    ordered_packets
+}
+
 /// Unpacks an rtshark Packet to check for- and return the ssh.message_code, if it exists.
 pub fn get_message_code(packet: &Packet) -> Option<u32> {
     let ssh_layer = packet.layer_name("ssh").expect("No ssh layer found when seeking message code");
@@ -201,4 +311,23 @@ pub fn find_common_algorithm(first: &str, second: &str) -> Option<String> {
     }
 
     None
+}
+
+/// Determine if protocol version indicates post-patch version of OpenSSH
+/// 
+/// Of course, clients might have the version but disabled Obfuscation. 
+/// This is a temporary hacky fix to showcase the bypass as a PoC.
+pub fn is_obfuscated(client: &str, server: &str) -> bool {
+    let versions = ["9.5", "9.6", "9.7", "9.8"];
+    let mut clientv = false;
+    let mut serverv = false;
+    for &version in versions.iter() {
+        if client.contains(version) {
+            clientv = true;
+        }
+        if server.contains(version) {
+            serverv = true;
+        }
+    }
+    return clientv && serverv;
 }
