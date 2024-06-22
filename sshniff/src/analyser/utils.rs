@@ -199,12 +199,6 @@ pub fn order_obfuscated_keystrokes<'a>(packet_infos: &mut Vec<PacketInfo<'a>>, k
                 ordered_packets.push(packet_infos.remove(curr));
             }
         } else if is_keystroke(&packet_infos[curr], keystroke_size) {
-
-            // dbg
-            if packet_infos[curr].seq == 9238 {
-                log::warn!("Packet spotted.");
-            }
-
             // Will catch fat packets
             ordered_packets.push(packet_infos.remove(curr));
             fat_packets.push(ordered_packets.len());
